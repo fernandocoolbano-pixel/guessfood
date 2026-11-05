@@ -1,0 +1,6 @@
+{
+  "name": "GuessFood",
+  "description": "Abra a geladeira. Diga o que você tem. O GuessFood decide o que você vai comer com a Roleta da Fome.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
