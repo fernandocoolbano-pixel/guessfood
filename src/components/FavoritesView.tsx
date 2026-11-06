@@ -26,7 +26,7 @@ export const FavoritesView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 pb-24 max-w-4xl mx-auto">
+    <div className="space-y-6 pb-3 max-w-4xl mx-auto">
       {/* Header */}
       <div className="bg-white rounded-3xl p-6 sm:p-8 border border-amber-100 shadow-sm space-y-3">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-100 text-rose-800 text-xs font-bold uppercase tracking-wider">

@@ -618,9 +618,10 @@ export function matchAndSolveRecipes(params: {
   // Sort by score
   scored.sort((a, b) => b.score - a.score);
 
-  // Pick up to 1 per category: rapido, incrementado, criativo
+  // Pick up to 1 per category: rapido, pratico, incrementado, criativo
   const selectedCategories: Record<RecipeCategory, BaseRecipeTemplate | null> = {
     rapido: null,
+    pratico: null,
     incrementado: null,
     criativo: null,
   };
@@ -635,7 +636,7 @@ export function matchAndSolveRecipes(params: {
   // Format into final Recipe objects
   const finalRecipes: Recipe[] = [];
 
-  const categoriesOrder: RecipeCategory[] = ['rapido', 'incrementado', 'criativo'];
+  const categoriesOrder: RecipeCategory[] = ['rapido', 'pratico', 'incrementado', 'criativo'];
 
   for (const cat of categoriesOrder) {
     const template = selectedCategories[cat];
@@ -744,7 +745,436 @@ export function matchAndSolveRecipes(params: {
   return finalRecipes;
 }
 
+// Filter recipes according to user-selected cooking effort (Rápido, Prático, Incrementado)
+export function matchRecipesForEffort(params: {
+  userIngredients: string[];
+  userAppliances: string[];
+  effort: 'rapido' | 'pratico' | 'incrementado';
+}): Recipe[] {
+  const { userIngredients, userAppliances, effort } = params;
+  const normalizedUserIngredients = userIngredients.map(i => i.toLowerCase().trim());
+  const normalizedUserAppliances = userAppliances.map(a => a.toLowerCase().trim());
+
+  // 1. Filter strictly by appliances
+  const applianceCompatible = RECIPE_DATABASE.filter(template => {
+    return template.requiredAppliances.every(reqApp =>
+      normalizedUserAppliances.includes(reqApp.toLowerCase())
+    );
+  });
+
+  // 2. Score by ingredients match
+  const scored = applianceCompatible.map(template => {
+    let matchedCount = 0;
+    const allIngredientsToCheck = [
+      ...template.primaryIngredients,
+      ...template.optionalIngredients,
+    ];
+
+    allIngredientsToCheck.forEach(ing => {
+      const isPresent = normalizedUserIngredients.some(
+        userIng => userIng.includes(ing) || ing.includes(userIng)
+      );
+      if (isPresent) matchedCount++;
+    });
+
+    const primaryMatched = template.primaryIngredients.filter(ing =>
+      normalizedUserIngredients.some(
+        userIng => userIng.includes(ing) || ing.includes(userIng)
+      )
+    ).length;
+
+    // Effort bonus
+    let effortBonus = 0;
+    if (effort === 'rapido') {
+      if (template.prepTimeMinutes <= 15 || template.category === 'rapido') effortBonus += 8;
+    } else if (effort === 'pratico') {
+      if (template.steps.length <= 3 || template.requiredAppliances.length === 1) effortBonus += 8;
+    } else if (effort === 'incrementado') {
+      if (template.category === 'incrementado' || template.prepTimeMinutes >= 18) effortBonus += 8;
+    }
+
+    const score = primaryMatched * 5 + matchedCount * 2 + effortBonus;
+
+    return {
+      template,
+      score,
+      primaryMatched,
+      matchedCount,
+    };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+
+  // Pick top 2 to 4 recipes for the wheel
+  const topTemplates = scored.slice(0, 4).map(s => s.template);
+
+  const recipes: Recipe[] = topTemplates.map(template => {
+    const ingredientsUsed = [
+      ...template.primaryIngredients.map(name => {
+        const isOwned = normalizedUserIngredients.some(
+          u => u.includes(name) || name.includes(u)
+        );
+        return {
+          name: capitalize(name),
+          amount: isOwned ? 'A gosto / Conforme disponível' : '1 porção',
+          isOwned,
+        };
+      }),
+      ...template.optionalIngredients.slice(0, 2).map(name => {
+        const isOwned = normalizedUserIngredients.some(
+          u => u.includes(name) || name.includes(u)
+        );
+        return {
+          name: capitalize(name),
+          amount: 'A gosto',
+          isOwned,
+        };
+      }),
+    ];
+
+    const missing = ingredientsUsed.find(i => !i.isOwned);
+
+    return {
+      id: template.id,
+      title: template.title,
+      category: template.category,
+      description: template.description,
+      prepTimeMinutes: template.prepTimeMinutes,
+      difficulty: template.difficulty,
+      servings: template.servings,
+      appliancesUsed: template.requiredAppliances,
+      ingredientsUsed,
+      hasAllIngredients: !missing,
+      missingIngredient: missing ? missing.name : undefined,
+      adaptedForPantryOnly:
+        template.adaptedAlternativeText ||
+        `Prepare apenas com os ingredientes disponíveis adaptando o tempero.`,
+      steps: template.steps.map((s, idx) => ({
+        stepNumber: idx + 1,
+        title: s.title,
+        description: s.description,
+        timerMinutes: s.timerMinutes,
+      })),
+      chefTip: template.chefTip,
+    };
+  });
+
+  // Fallback if none matched
+  if (recipes.length === 0) {
+    return matchAndSolveRecipes({ userIngredients, userAppliances });
+  }
+
+  return recipes;
+}
+
+// Special Occasions Solver
+export function matchOccasionRecipes(params: {
+  occasionId: string;
+  userIngredients: string[];
+  userAppliances: string[];
+}): Recipe[] {
+  const { occasionId, userIngredients, userAppliances } = params;
+  const base = matchAndSolveRecipes({ userIngredients, userAppliances });
+
+  // Map occasion customization
+  const occasionTitles: Record<string, { prefix: string; note: string }> = {
+    amigos: {
+      prefix: 'Tábua de Compartilhar: ',
+      note: 'Perfeito para servir no centro da mesa com amigos.',
+    },
+    casal: {
+      prefix: 'Especial a Dois: ',
+      note: 'Aroma aconchegante e apresentação charmosa para dois.',
+    },
+    domingo: {
+      prefix: 'Tradição de Domingo: ',
+      note: 'Comida reconfortante de família com sabor de casa cheia.',
+    },
+    happy_hour: {
+      prefix: 'Petisco de Boteco: ',
+      note: 'Tira-gosto dourado e sequinho para beliscar sem pressa.',
+    },
+    comemoracao: {
+      prefix: 'Receita Festiva: ',
+      note: 'Prato marcante para celebrar um momento especial.',
+    },
+  };
+
+  const custom = occasionTitles[occasionId] || { prefix: '', note: '' };
+
+  return base.map(recipe => ({
+    ...recipe,
+    title: recipe.title.startsWith(custom.prefix) ? recipe.title : `${custom.prefix}${recipe.title}`,
+    chefTip: `${recipe.chefTip || ''} ${custom.note}`.trim(),
+    occasionId,
+  }));
+}
+
+// DRINKS DATA & SOLVER
+export interface DrinkTemplate {
+  id: string;
+  title: string;
+  description: string;
+  isAlcoholic: boolean;
+  prepTimeMinutes: number;
+  glassware: string;
+  difficulty: 'Fácil' | 'Médio';
+  primaryIngredients: string[];
+  optionalIngredients: string[];
+  steps: {
+    title: string;
+    description: string;
+    timerMinutes?: number;
+  }[];
+  bartenderTip: string;
+}
+
+export const DRINKS_DATABASE: DrinkTemplate[] = [
+  {
+    id: 'caipirinha-classica',
+    title: 'Caipirinha Tradicional Refrescante',
+    description: 'O drink clássico brasileiro com limão macerado com açúcar, gelo e cachaça ou vodka.',
+    isAlcoholic: true,
+    prepTimeMinutes: 4,
+    glassware: 'Copo baixo (On the Rocks)',
+    difficulty: 'Fácil',
+    primaryIngredients: ['limão', 'açúcar'],
+    optionalIngredients: ['cachaça', 'vodka', 'gelo'],
+    steps: [
+      {
+        title: 'Macerar o limão',
+        description: 'Corte o limão em gomos retirando o miolo branco para não amargar. Coloque no copo com 1 a 2 colheres de açúcar e macere suavemente.',
+      },
+      {
+        title: 'Adicionar gelo',
+        description: 'Encha o copo com cubos de gelo até a borda.',
+      },
+      {
+        title: 'Acrescentar a bebida',
+        description: 'Adicione 50ml de cachaça ou vodka. Misture bem de baixo para cima com uma colher bailarina ou mexedor.',
+      },
+      {
+        title: 'Servir',
+        description: 'Decore com uma rodela de limão fresca e aproveite!',
+      },
+    ],
+    bartenderTip: 'Retirar a parte branca central do limão evita qualquer amargor no drink.',
+  },
+  {
+    id: 'gin-tropical',
+    title: 'Gin Tropical com Frutas',
+    description: 'Bebida aromática, leve e sofisticada com gin ou vodka, água tônica ou com gás e frutas frescas.',
+    isAlcoholic: true,
+    prepTimeMinutes: 3,
+    glassware: 'Taça bojuda de Gin',
+    difficulty: 'Fácil',
+    primaryIngredients: ['gin'],
+    optionalIngredients: ['água com gás', 'água tônica', 'morango', 'limão', 'gelo', 'laranja'],
+    steps: [
+      {
+        title: 'Gelar a taça',
+        description: 'Encha uma taça grande com bastante gelo e gire para resfriar o vidro.',
+      },
+      {
+        title: 'Adicionar frutas e gin',
+        description: 'Coloque fatias de morango ou limão e adicione uma dose (50ml) de gin.',
+      },
+      {
+        title: 'Completar com tônica ou gás',
+        description: 'Despeje a água tônica ou água com gás bem gelada devagar para preservar as borbulhas.',
+      },
+      {
+        title: 'Mexer suavemente',
+        description: 'Dê apenas uma leve mexida de baixo para cima e sirva.',
+      },
+    ],
+    bartenderTip: 'Quanto mais gelo tiver a taça, mais devagar ele derrete e menos o drink fica aguado.',
+  },
+  {
+    id: 'batida-morango-cremosa',
+    title: 'Batida Cremosa de Morango',
+    description: 'Doce, aveludada e refrescante batida no liquidificador em segundos.',
+    isAlcoholic: true,
+    prepTimeMinutes: 3,
+    glassware: 'Copo alto ou taça',
+    difficulty: 'Fácil',
+    primaryIngredients: ['morango', 'leite condensado'],
+    optionalIngredients: ['vodka', 'cachaça', 'gelo', 'leite'],
+    steps: [
+      {
+        title: 'Juntar os ingredientes',
+        description: 'No liquidificador, coloque morangos limpos, 3 colheres de leite condensado, gelo e uma dose de vodka (ou leite para versão sem álcool).',
+      },
+      {
+        title: 'Bater até ficar cremoso',
+        description: 'Bata na potência máxima por 30 segundos até triturar o gelo e criar uma textura de smoothie.',
+      },
+      {
+        title: 'Servir',
+        description: 'Despeje no copo e decore com um morango na borda.',
+      },
+    ],
+    bartenderTip: 'Se não tiver leite condensado, leite com 2 colheres de açúcar e um pouco de creme já dá o mesmo toque cremoso.',
+  },
+  {
+    id: 'mojito-hortela',
+    title: 'Mojito Refrescante de Hortelã',
+    description: 'O drink caribenho ultra refrescante com hortelã fresca, limão, açúcar e água gaseificada.',
+    isAlcoholic: true,
+    prepTimeMinutes: 5,
+    glassware: 'Copo Long Drink',
+    difficulty: 'Fácil',
+    primaryIngredients: ['limão', 'hortelã', 'açúcar'],
+    optionalIngredients: ['rum', 'vodka', 'água com gás', 'gelo'],
+    steps: [
+      {
+        title: 'Despertar a hortelã',
+        description: 'Bata suavemente as folhas de hortelã na palma da mão para soltar os óleos essenciais e coloque no copo.',
+      },
+      {
+        title: 'Macerar com limão e açúcar',
+        description: 'Adicione suco de 1 limão e 1 colher de açúcar. Macere com cuidado para não despedaçar as folhas.',
+      },
+      {
+        title: 'Gelo e destilado',
+        description: 'Encha o copo de gelo picado ou em cubos e adicione 50ml de rum ou vodka.',
+      },
+      {
+        title: 'Completar com água com gás',
+        description: 'Complete com água com gás e misture delicadamente.',
+      },
+    ],
+    bartenderTip: 'Nunca esmague a hortelã com força excessiva, apenas pressione para liberar o frescor sem amargar.',
+  },
+  {
+    id: 'soda-italiana-frutas',
+    title: 'Soda Italiana Artesanal (Sem Álcool)',
+    description: 'Bebida efervescente, frutada e perfeita para qualquer hora do dia.',
+    isAlcoholic: false,
+    prepTimeMinutes: 3,
+    glassware: 'Copo alto com canudo',
+    difficulty: 'Fácil',
+    primaryIngredients: ['água com gás'],
+    optionalIngredients: ['morango', 'limão', 'açúcar', 'gelo', 'hortelã'],
+    steps: [
+      {
+        title: 'Preparar a base de fruta',
+        description: 'No fundo do copo, amasse morangos ou frutas disponíveis com uma colher de açúcar ou mel.',
+      },
+      {
+        title: 'Adicionar muito gelo',
+        description: 'Preencha todo o copo com cubos de gelo.',
+      },
+      {
+        title: 'Completar com gás',
+        description: 'Adicione a água com gás bem gelada lentamente e finalize com umas gotas de limão.',
+      },
+      {
+        title: 'Aproveitar',
+        description: 'Sirva com um raminho de hortelã e mexa antes de beber.',
+      },
+    ],
+    bartenderTip: 'Excelente opção não-alcoólica sofisticada para quem quer algo refrescante e com poucas calorias.',
+  },
+  {
+    id: 'limonada-suica-cremosa',
+    title: 'Limonada Suíça Cremosa (Sem Álcool)',
+    description: 'Batida com casca e leite condensado, cremosa e agridoce sem igual.',
+    isAlcoholic: false,
+    prepTimeMinutes: 3,
+    glassware: 'Copo alto',
+    difficulty: 'Fácil',
+    primaryIngredients: ['limão', 'leite condensado'],
+    optionalIngredients: ['água', 'gelo', 'açúcar'],
+    steps: [
+      {
+        title: 'Cortar os limões',
+        description: 'Corte 2 limões bem lavados em 4 partes e retire o miolo branco central.',
+      },
+      {
+        title: 'Bater ligeiro',
+        description: 'Coloque no liquidificador com 500ml de água, 3 colheres de leite condensado e gelo. Bata no botão pulsar por apenas 5 a 8 segundos para não amargar.',
+      },
+      {
+        title: 'Coar imediatamente',
+        description: 'Passe pela peneira direto para a jarra ou copo.',
+      },
+      {
+        title: 'Servir bem gelado',
+        description: 'Beba na hora enquanto a espuma aveludada está no topo!',
+      },
+    ],
+    bartenderTip: 'Bater apenas por poucos segundos é o grande segredo para extrair o aroma da casca sem amargar a bebida.',
+  },
+  {
+    id: 'moscow-mule-caseiro',
+    title: 'Moscow Mule Caseiro com Limão',
+    description: 'Drink refrescante cítrico com toque aromático e espuma fresca.',
+    isAlcoholic: true,
+    prepTimeMinutes: 4,
+    glassware: 'Caneca de cobre ou copo baixo',
+    difficulty: 'Fácil',
+    primaryIngredients: ['limão'],
+    optionalIngredients: ['vodka', 'água com gás', 'gengibre', 'açúcar', 'gelo'],
+    steps: [
+      {
+        title: 'Gelar o recipiente',
+        description: 'Encha a caneca ou copo com pedras de gelo.',
+      },
+      {
+        title: 'Misturar vodka e limão',
+        description: 'Adicione 50ml de vodka e o suco de meio limão fresco.',
+      },
+      {
+        title: 'Adicionar o toque aromático',
+        description: 'Acrescente uma fatia de gengibre ou xarope simples de açúcar com limão.',
+      },
+      {
+        title: 'Completar com gás',
+        description: 'Complete com água com gás bem gelada e decore com uma rodela de limão.',
+      },
+    ],
+    bartenderTip: 'A caneca de cobre mantém a temperatura congelante por muito mais tempo.',
+  },
+];
+
+// Match drinks from user ingredients
+export function matchAndSolveDrinks(params: {
+  userDrinkIngredients: string[];
+}): DrinkTemplate[] {
+  const { userDrinkIngredients } = params;
+  const normalized = userDrinkIngredients.map(i => i.toLowerCase().trim());
+
+  if (normalized.length === 0) {
+    return DRINKS_DATABASE.slice(0, 3);
+  }
+
+  const scored = DRINKS_DATABASE.map(drink => {
+    let matchCount = 0;
+    const all = [...drink.primaryIngredients, ...drink.optionalIngredients];
+    all.forEach(ing => {
+      if (normalized.some(u => u.includes(ing) || ing.includes(u))) {
+        matchCount++;
+      }
+    });
+
+    const primaryMatch = drink.primaryIngredients.filter(ing =>
+      normalized.some(u => u.includes(ing) || ing.includes(u))
+    ).length;
+
+    return {
+      drink,
+      score: primaryMatch * 4 + matchCount * 2,
+    };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+
+  return scored.slice(0, 4).map(s => s.drink);
+}
+
 function capitalize(str: string): string {
   if (!str) return '';
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
+

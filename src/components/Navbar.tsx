@@ -1,6 +1,14 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
-import { ChefHat, Sparkles, Zap, Flame, UtensilsCrossed } from 'lucide-react';
+import {
+  ChefHat,
+  Sparkles,
+  Zap,
+  PartyPopper,
+  GlassWater,
+  Heart,
+  UtensilsCrossed,
+} from 'lucide-react';
 
 export const Navbar: React.FC = () => {
   const {
@@ -13,30 +21,74 @@ export const Navbar: React.FC = () => {
   } = useApp();
 
   return (
-    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-amber-100 shadow-xs">
-      <div className="max-w-5xl mx-auto px-3 sm:px-4 h-14 sm:h-16 flex items-center justify-between gap-2">
+    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-amber-100 shadow-xs w-full max-w-full">
+      <div className="max-w-5xl mx-auto px-3 sm:px-4 h-14 sm:h-16 flex items-center justify-between gap-2 w-full max-w-full">
         {/* Brand Logo */}
         <button
           onClick={() => setActiveView('home')}
-          className="flex items-center gap-2 sm:gap-2.5 text-left group transition-transform active:scale-95 shrink-0"
+          className="flex items-center gap-2 sm:gap-2.5 text-left group transition-transform active:scale-95 shrink-0 min-w-0"
         >
           <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-amber-500 via-orange-500 to-rose-500 flex items-center justify-center text-white shadow-md shadow-orange-500/20 group-hover:rotate-6 transition-transform shrink-0">
             <span className="text-lg sm:text-xl">🍽️</span>
           </div>
-          <div className="flex flex-col justify-center">
+          <div className="flex flex-col justify-center min-w-0">
             <div className="flex items-center gap-1.5">
               <span className="font-extrabold text-lg sm:text-xl tracking-tight text-stone-900 font-['Outfit'] leading-none">
                 Guess<span className="text-orange-600">Food</span>
               </span>
-              <span className="hidden sm:inline-block text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 uppercase tracking-wider whitespace-nowrap">
+              <span className="hidden md:inline-block text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 uppercase tracking-wider whitespace-nowrap">
                 Roleta da Fome
               </span>
             </div>
-            <p className="text-[10px] sm:text-[11px] text-stone-500 font-medium leading-tight mt-0.5">
-              Menos dúvida. Mais comida.
+            <p className="text-[11px] text-stone-500 font-medium leading-tight mt-0.5 hidden sm:block truncate max-w-xs">
+              Você conta o que tem. A gente faz o resto.
             </p>
           </div>
         </button>
+
+        {/* Desktop Navigation Links */}
+        <div className="hidden lg:flex items-center gap-1">
+          <button
+            onClick={() => setActiveView('ingredients')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+              activeView === 'ingredients' || activeView === 'meal-moment' || activeView === 'wheel'
+                ? 'bg-orange-50 text-orange-600 font-black'
+                : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            🍽️ O que Comer
+          </button>
+          <button
+            onClick={() => setActiveView('occasions')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+              activeView === 'occasions'
+                ? 'bg-purple-50 text-purple-700 font-black'
+                : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            🎉 Ocasiões
+          </button>
+          <button
+            onClick={() => setActiveView('drinks')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+              activeView === 'drinks'
+                ? 'bg-pink-50 text-pink-700 font-black'
+                : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            🍸 Drinks
+          </button>
+          <button
+            onClick={() => setActiveView('favorites')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+              activeView === 'favorites'
+                ? 'bg-rose-50 text-rose-700 font-black'
+                : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            ❤️ Favoritos
+          </button>
+        </div>
 
         {/* Center / Right actions */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
@@ -50,7 +102,7 @@ export const Navbar: React.FC = () => {
             }`}
           >
             <span>🔌</span>
-            <span>Minha Cozinha</span>
+            <span>Cozinha</span>
             <span className="w-5 h-5 rounded-full bg-amber-500 text-white flex items-center justify-center text-[10px] font-bold">
               {selectedApplianceIds.length}
             </span>
@@ -78,7 +130,7 @@ export const Navbar: React.FC = () => {
           ) : (
             <button
               onClick={() => setIsUpgradeModalOpen(true)}
-              className="hidden lg:flex items-center gap-1 px-2.5 py-1 rounded-full bg-gradient-to-r from-amber-100 to-yellow-100 text-amber-900 border border-amber-300 text-xs font-bold hover:brightness-105 transition-all shadow-xs shrink-0"
+              className="hidden xl:flex items-center gap-1 px-2.5 py-1 rounded-full bg-gradient-to-r from-amber-100 to-yellow-100 text-amber-900 border border-amber-300 text-xs font-bold hover:brightness-105 transition-all shadow-xs shrink-0"
             >
               <Sparkles className="w-3 h-3 text-amber-600" />
               <span>R$ 11,90 Vitalício</span>

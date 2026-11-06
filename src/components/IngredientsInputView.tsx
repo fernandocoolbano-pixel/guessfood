@@ -1,16 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
-import { COMMON_PANTRY_SUGGESTIONS } from '../data/kitchenAppliances';
+import { getIngredientEmoji } from '../utils/foodIcons';
 import {
+  Mic,
+  MicOff,
   Sparkles,
   Plus,
   X,
   Trash2,
   ArrowRight,
   Zap,
-  Refrigerator,
   Check,
-  Wand2,
+  RotateCcw,
+  Volume2,
+  Keyboard,
+  Edit2,
 } from 'lucide-react';
 
 export const IngredientsInputView: React.FC = () => {
@@ -24,183 +28,276 @@ export const IngredientsInputView: React.FC = () => {
     setIsDecideForMeModalOpen,
   } = useApp();
 
-  const [freeText, setFreeText] = useState('');
-  const [isInterpreting, setIsInterpreting] = useState(false);
-  const [interpretFeedback, setInterpretFeedback] = useState<string | null>(null);
+  // Voice Recognition states
+  const [isListening, setIsListening] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const [isSpeechSupported, setIsSpeechSupported] = useState(true);
+  const [speechError, setSpeechError] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [confirmedMessage, setConfirmedMessage] = useState<string | null>(null);
 
+  // Manual fallback input
+  const [showManualInput, setShowManualInput] = useState(false);
+  const [manualText, setManualText] = useState('');
   const [singleInput, setSingleInput] = useState('');
 
-  const handleInterpretFreeText = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!freeText.trim()) return;
+  const recognitionRef = useRef<any>(null);
 
-    setIsInterpreting(true);
-    setInterpretFeedback(null);
+  useEffect(() => {
+    // Check Web Speech API availability
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setIsSpeechSupported(false);
+      setShowManualInput(true);
+    }
+  }, []);
+
+  const startListening = () => {
+    setSpeechError(null);
+    setConfirmedMessage(null);
+    setTranscript('');
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setIsSpeechSupported(false);
+      setShowManualInput(true);
+      return;
+    }
+
     try {
-      const count = await parseAndAddIngredientsFromText(freeText);
-      setFreeText('');
-      setInterpretFeedback(`✨ Encontramos e adicionamos ${count} itens à sua despensa!`);
-      setTimeout(() => setInterpretFeedback(null), 4000);
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'pt-BR';
+      recognition.continuous = false;
+      recognition.interimResults = true;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        let currentText = '';
+        for (let i = 0; i < event.results.length; i++) {
+          currentText += event.results[i][0].transcript;
+        }
+        setTranscript(currentText);
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn('Speech recognition error:', event.error);
+        setIsListening(false);
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          setSpeechError('Permissão de microfone negada. Você pode digitar abaixo.');
+          setShowManualInput(true);
+        } else if (event.error === 'no-speech') {
+          setSpeechError('Não ouvimos nada. Tente falar um pouco mais perto do microfone.');
+        } else {
+          setSpeechError('Erro ao capturar áudio. Digite seus ingredientes abaixo.');
+          setShowManualInput(true);
+        }
+      };
+
+      recognition.onend = async () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
     } catch (err) {
-      setInterpretFeedback('Não foi possível interpretar o texto no momento.');
-    } finally {
-      setIsInterpreting(false);
+      console.error('Speech initialization error:', err);
+      setIsSpeechSupported(false);
+      setShowManualInput(true);
     }
   };
 
+  const stopListeningAndProcess = async () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+    setIsListening(false);
+
+    if (transcript.trim()) {
+      await processTranscribedText(transcript);
+    }
+  };
+
+  // Watch transcript after speech ends or user finishes
+  useEffect(() => {
+    if (!isListening && transcript.trim() && !isProcessing) {
+      processTranscribedText(transcript);
+    }
+  }, [isListening]);
+
+  const processTranscribedText = async (textToProcess: string) => {
+    setIsProcessing(true);
+    setConfirmedMessage(null);
+    try {
+      const count = await parseAndAddIngredientsFromText(textToProcess);
+      setConfirmedMessage(
+        count > 0
+          ? `Entendi! Encontrei estes ${count} ingredientes na sua cozinha:`
+          : 'Ingredientes adicionados com sucesso!'
+      );
+      setTranscript('');
+    } catch (e) {
+      console.warn(e);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Manual free text
+  const handleManualTextSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualText.trim()) return;
+    setIsProcessing(true);
+    await processTranscribedText(manualText);
+    setManualText('');
+  };
+
+  // Single manual item addition
   const handleAddSingle = (e: React.FormEvent) => {
     e.preventDefault();
     if (singleInput.trim()) {
       addIngredient(singleInput.trim());
       setSingleInput('');
+      setConfirmedMessage('Ingrediente adicionado!');
+      setTimeout(() => setConfirmedMessage(null), 3000);
     }
   };
 
   return (
-    <div className="space-y-6 pb-20 max-w-4xl mx-auto">
-      {/* Title Header */}
-      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-amber-100 shadow-sm space-y-3">
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold uppercase tracking-wider">
-          <Refrigerator className="w-3.5 h-3.5" />
-          <span>Passo 1 do Planejador</span>
+    <div className="space-y-6 pb-3 max-w-3xl mx-auto">
+      {/* Header Banner */}
+      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-amber-100 shadow-sm text-center space-y-4">
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-100 text-orange-800 text-xs font-black uppercase tracking-wider">
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>Você conta o que tem. O GuessFood faz o resto.</span>
         </div>
 
         <h1 className="text-2xl sm:text-4xl font-black text-stone-900 font-['Outfit']">
-          🧺 O que você tem em casa hoje?
+          🎤 Conte o que você tem na sua cozinha
         </h1>
 
-        <p className="text-sm text-stone-600 max-w-xl">
-          Abra a geladeira e os armários. Não precisa ser muito chique: o GuessFood combina suas sobras, ovos, queijo ou qualquer ingrediente em uma receita viável e saborosa.
+        <p className="text-sm sm:text-base text-stone-600 max-w-lg mx-auto font-medium">
+          Não precisa digitar tudo. Aperte o microfone e conte o que você está vendo na geladeira, no armário ou na sua cozinha.
         </p>
-      </div>
 
-      {/* Dual Options Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {/* OPÇÃO 1 — DIGITAÇÃO LIVRE */}
-        <div className="bg-white rounded-3xl p-6 border border-amber-100 shadow-sm flex flex-col justify-between space-y-4">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase text-orange-600 tracking-wider">
-                Opção 1
-              </span>
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-800">
-                IA Inteligente
-              </span>
-            </div>
-            <h3 className="text-lg font-black text-stone-900 font-['Outfit']">
-              Escrever com suas próprias palavras
-            </h3>
-            <p className="text-xs text-stone-500">
-              Escreva como fala: &ldquo;Tenho arroz que sobrou de ontem, frango, ovos e queijo ralado.&rdquo;
-            </p>
-          </div>
-
-          <form onSubmit={handleInterpretFreeText} className="space-y-3 flex-1 flex flex-col justify-between">
-            <textarea
-              rows={4}
-              value={freeText}
-              onChange={e => setFreeText(e.target.value)}
-              placeholder="Ex: Tenho tomate, alho, um resto de frango desfiado, 2 ovos e requeijão..."
-              className="w-full rounded-2xl border border-stone-200 bg-stone-50/70 p-3.5 text-sm focus:border-orange-500 focus:bg-white focus:outline-none transition-colors resize-none font-medium placeholder:text-stone-400"
-            />
-
-            {interpretFeedback && (
-              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2">
-                <Check className="w-4 h-4 text-emerald-600" />
-                <span>{interpretFeedback}</span>
+        {/* Big Voice Button & Audio Wave Animation */}
+        <div className="pt-2 flex flex-col items-center justify-center">
+          {!isListening ? (
+            <button
+              onClick={startListening}
+              disabled={isProcessing}
+              className="group relative px-8 py-5 rounded-3xl bg-gradient-to-r from-orange-500 via-rose-500 to-amber-500 hover:brightness-110 active:scale-95 text-white font-black text-lg sm:text-xl shadow-2xl shadow-orange-500/35 transition-all flex items-center justify-center gap-3.5 cursor-pointer disabled:opacity-50"
+            >
+              <div className="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                <Mic className="w-6 h-6 text-white" />
               </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={isInterpreting || !freeText.trim()}
-              className="w-full py-3 px-4 rounded-xl bg-orange-500 hover:bg-orange-600 active:scale-95 disabled:opacity-50 text-white font-extrabold text-xs sm:text-sm shadow-md shadow-orange-500/20 flex items-center justify-center gap-2 transition-all"
-            >
-              <Wand2 className={`w-4 h-4 ${isInterpreting ? 'animate-spin' : ''}`} />
-              <span>
-                {isInterpreting ? 'Interpretando com IA...' : 'Interpretar Ingredientes com IA'}
-              </span>
+              <span>CONTAR O QUE EU TENHO</span>
             </button>
-          </form>
-        </div>
+          ) : (
+            <div className="flex flex-col items-center gap-3">
+              {/* Pulsing microphone */}
+              <button
+                onClick={stopListeningAndProcess}
+                className="relative w-24 h-24 rounded-full bg-red-500 text-white flex items-center justify-center shadow-2xl shadow-red-500/50 cursor-pointer animate-pulse"
+              >
+                <span className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-40 pointer-events-none" />
+                <Mic className="w-10 h-10 animate-bounce" />
+              </button>
 
-        {/* OPÇÃO 2 — ADICIONAR UM A UM / SUGESTÕES RÁPIDAS */}
-        <div className="bg-white rounded-3xl p-6 border border-amber-100 shadow-sm flex flex-col justify-between space-y-4">
-          <div className="space-y-2">
-            <span className="text-xs font-bold uppercase text-orange-600 tracking-wider">
-              Opção 2
-            </span>
-            <h3 className="text-lg font-black text-stone-900 font-['Outfit']">
-              Adicionar ingredientes avulsos
-            </h3>
-            <p className="text-xs text-stone-500">
-              Digite o nome ou toque nos alimentos mais comuns da geladeira:
-            </p>
-          </div>
-
-          <form onSubmit={handleAddSingle} className="flex gap-2">
-            <input
-              type="text"
-              value={singleInput}
-              onChange={e => setSingleInput(e.target.value)}
-              placeholder="Nome do alimento (ex: Batata)"
-              className="flex-1 rounded-xl border border-stone-200 bg-stone-50/70 px-3.5 py-2.5 text-sm focus:border-orange-500 focus:bg-white focus:outline-none font-medium"
-            />
-            <button
-              type="submit"
-              disabled={!singleInput.trim()}
-              className="px-4 py-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 disabled:opacity-40 text-white font-bold text-xs flex items-center gap-1 transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Adicionar</span>
-            </button>
-          </form>
-
-          {/* Quick pantry tap badges */}
-          <div className="space-y-1.5">
-            <span className="text-[11px] font-bold text-stone-400 uppercase tracking-wider block">
-              Sugestões rápidas (toque para adicionar):
-            </span>
-            <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
-              {COMMON_PANTRY_SUGGESTIONS.map(s => {
-                const alreadyHas = pantryIngredients.some(
-                  p => p.toLowerCase() === s.name.toLowerCase()
-                );
-                return (
-                  <button
-                    key={s.name}
-                    type="button"
-                    onClick={() => addIngredient(s.name)}
-                    disabled={alreadyHas}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
-                      alreadyHas
-                        ? 'bg-stone-100 text-stone-400 border-stone-200 cursor-default opacity-60'
-                        : 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-stone-800 active:scale-95'
-                    }`}
-                  >
-                    <span>{s.icon}</span>
-                    <span>{s.name}</span>
-                    {!alreadyHas && <Plus className="w-3 h-3 text-orange-600" />}
-                  </button>
-                );
-              })}
+              <div className="space-y-1">
+                <span className="text-xs font-black uppercase tracking-widest text-red-600 bg-red-50 px-3 py-1 rounded-full border border-red-200">
+                  🔴 Ouvindo... Fale naturalmente!
+                </span>
+                <p className="text-xs text-stone-400">Toque no microfone para concluir</p>
+              </div>
             </div>
+          )}
+
+          {/* Example cue */}
+          <div className="pt-3 text-xs text-stone-500 italic max-w-md">
+            &ldquo;Ex: Tenho ovos, queijo, tomate, um pouco de frango. No armário tenho arroz, macarrão e cebola.&rdquo;
           </div>
         </div>
+
+        {/* Real-time speech transcript feedback */}
+        {isListening && transcript && (
+          <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-stone-800 text-sm font-medium animate-in fade-in">
+            <span className="text-xs font-bold text-orange-700 block uppercase mb-1">
+              Transcrição ao vivo:
+            </span>
+            &ldquo;{transcript}&rdquo;
+          </div>
+        )}
+
+        {isProcessing && (
+          <div className="p-4 rounded-2xl bg-orange-50 border border-orange-200 text-orange-900 text-xs sm:text-sm font-bold flex items-center justify-center gap-2">
+            <Sparkles className="w-4 h-4 animate-spin text-orange-600" />
+            <span>Identificando e organizando seus ingredientes...</span>
+          </div>
+        )}
+
+        {speechError && (
+          <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold text-center">
+            {speechError}
+          </div>
+        )}
+
+        {/* Fallback button to show typing field */}
+        <div className="pt-1">
+          <button
+            onClick={() => setShowManualInput(!showManualInput)}
+            className="text-xs font-bold text-stone-500 hover:text-stone-800 underline inline-flex items-center gap-1"
+          >
+            <Keyboard className="w-3.5 h-3.5" />
+            <span>{showManualInput ? 'Ocultar digitação' : 'Prefere digitar com teclado? Clique aqui'}</span>
+          </button>
+        </div>
+
+        {/* Manual typing fallback */}
+        {showManualInput && (
+          <form
+            onSubmit={handleManualTextSubmit}
+            className="pt-2 text-left space-y-2 border-t border-stone-100"
+          >
+            <label className="text-xs font-bold text-stone-700">
+              Escreva o que você tem na cozinha:
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={manualText}
+                onChange={e => setManualText(e.target.value)}
+                placeholder="Ex: Tenho ovos, queijo, tomate, frango desfiado e arroz..."
+                className="flex-1 p-3 rounded-2xl border border-stone-200 bg-stone-50 text-sm focus:outline-orange-500 font-medium"
+              />
+              <button
+                type="submit"
+                disabled={!manualText.trim()}
+                className="px-5 py-3 rounded-2xl bg-stone-900 hover:bg-stone-800 text-white font-bold text-xs shrink-0 disabled:opacity-40"
+              >
+                Organizar
+              </button>
+            </div>
+          </form>
+        )}
       </div>
 
-      {/* Visual Ingredients List (Etiquetas selecionadas) */}
-      <div className="bg-white rounded-3xl p-6 border border-amber-100 shadow-sm space-y-4">
+      {/* Confirmation & Registered Ingredients List */}
+      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-amber-100 shadow-sm space-y-5">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h3 className="font-black text-stone-900 text-lg font-['Outfit']">
-              Sua despensa atual ({pantryIngredients.length})
-            </h3>
-            {pantryIngredients.length > 0 && (
-              <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                Pronto para combinar!
-              </span>
-            )}
+          <div className="space-y-0.5">
+            <span className="text-xs font-bold text-orange-600 uppercase tracking-wider">
+              {confirmedMessage || 'Sua Despensa Atual'}
+            </span>
+            <h2 className="text-xl sm:text-2xl font-black text-stone-900 font-['Outfit']">
+              Ingredientes na sua cozinha ({pantryIngredients.length})
+            </h2>
           </div>
 
           {pantryIngredients.length > 0 && (
@@ -215,43 +312,78 @@ export const IngredientsInputView: React.FC = () => {
         </div>
 
         {pantryIngredients.length === 0 ? (
-          <div className="py-8 text-center text-stone-400 space-y-2 border-2 border-dashed border-stone-200 rounded-2xl">
-            <span className="text-3xl block">🧺</span>
-            <p className="text-sm font-bold">Nenhum ingrediente adicionado ainda.</p>
-            <p className="text-xs">
-              Digite acima ou clique nas sugestões rápidas para começar!
+          <div className="py-10 text-center text-stone-400 space-y-2 border-2 border-dashed border-stone-200 rounded-3xl">
+            <span className="text-4xl block">🧺</span>
+            <p className="text-base font-bold text-stone-700">
+              Nenhum ingrediente informado ainda.
+            </p>
+            <p className="text-xs max-w-sm mx-auto">
+              Aperte o botão <strong>&ldquo;CONTAR O QUE EU TENHO&rdquo;</strong> acima e fale o que você tem na geladeira!
             </p>
           </div>
         ) : (
-          <div className="flex flex-wrap gap-2.5">
-            {pantryIngredients.map(item => (
-              <div
-                key={item}
-                className="group inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-amber-50 to-orange-50 border border-orange-200/80 shadow-2xs hover:shadow-xs transition-all"
-              >
-                <span className="font-extrabold text-stone-800 text-sm">{item}</span>
-                <button
-                  type="button"
-                  onClick={() => removeIngredient(item)}
-                  className="w-5 h-5 rounded-full bg-orange-200/60 group-hover:bg-red-500 group-hover:text-white text-stone-600 flex items-center justify-center transition-colors"
-                  title={`Remover ${item}`}
+          /* Visual Cards with Food Emojis */
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+            {pantryIngredients.map(item => {
+              const emoji = getIngredientEmoji(item);
+
+              return (
+                <div
+                  key={item}
+                  className="group p-3 rounded-2xl bg-amber-50/50 hover:bg-amber-100/60 border border-amber-200/80 flex items-center justify-between gap-2 shadow-2xs hover:shadow-xs transition-all"
                 >
-                  <X className="w-3 h-3 stroke-[2.5]" />
-                </button>
-              </div>
-            ))}
+                  <div className="flex items-center gap-2.5 truncate">
+                    <span className="text-2xl shrink-0">{emoji}</span>
+                    <span className="font-extrabold text-stone-800 text-sm truncate">
+                      {item}
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => removeIngredient(item)}
+                    className="w-6 h-6 rounded-full bg-stone-200/70 hover:bg-red-500 hover:text-white text-stone-600 flex items-center justify-center transition-colors shrink-0"
+                    title={`Remover ${item}`}
+                  >
+                    <X className="w-3 h-3 stroke-[2.5]" />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
+
+        {/* Simple single item addition field */}
+        <form
+          onSubmit={handleAddSingle}
+          className="pt-2 flex items-center gap-2 border-t border-stone-100"
+        >
+          <input
+            type="text"
+            value={singleInput}
+            onChange={e => setSingleInput(e.target.value)}
+            placeholder="+ Adicionar outro ingrediente manualmente (ex: Batata)"
+            className="flex-1 p-2.5 rounded-xl border border-stone-200 bg-stone-50/70 text-xs sm:text-sm font-medium focus:outline-orange-500"
+          />
+          <button
+            type="submit"
+            disabled={!singleInput.trim()}
+            className="px-4 py-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 disabled:opacity-40 text-white font-bold text-xs shrink-0 flex items-center gap-1 transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Adicionar</span>
+          </button>
+        </form>
       </div>
 
-      {/* Bottom Step Actions */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-stone-900 text-white rounded-3xl p-5 shadow-xl">
+      {/* Bottom Action: Advance to Cooking Effort Choice */}
+      <div className="bg-stone-900 text-white rounded-3xl p-5 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
         <div>
-          <h4 className="font-black text-base">Tudo pronto com os ingredientes?</h4>
+          <h4 className="font-black text-base">Tudo pronto com seus ingredientes?</h4>
           <p className="text-xs text-stone-300">
             {pantryIngredients.length === 0
-              ? 'Adicione ao menos 1 item para o GuessFood encontrar opções.'
-              : `${pantryIngredients.length} ingredientes prontos para o preparo.`}
+              ? 'Fale ou adicione ao menos 1 item para continuar.'
+              : `${pantryIngredients.length} ingredientes identificados e prontos.`}
           </p>
         </div>
 
@@ -266,13 +398,13 @@ export const IngredientsInputView: React.FC = () => {
             <span>Decidir Já!</span>
           </button>
 
-          {/* Continue to Meal moment */}
+          {/* Continue to Effort Choice */}
           <button
             onClick={() => setActiveView('meal-moment')}
             disabled={pantryIngredients.length === 0}
-            className="flex-1 sm:flex-initial px-6 py-3 rounded-2xl bg-orange-500 hover:bg-orange-600 active:scale-95 disabled:opacity-40 text-white font-black text-sm shadow-md shadow-orange-500/20 flex items-center justify-center gap-2 transition-all"
+            className="flex-1 sm:flex-initial px-6 py-3 rounded-2xl bg-orange-500 hover:bg-orange-600 active:scale-95 disabled:opacity-40 text-white font-black text-sm shadow-md shadow-orange-500/20 flex items-center justify-center gap-2 transition-all cursor-pointer"
           >
-            <span>Escolher Refeição</span>
+            <span>Escolher Como Cozinhar</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>

@@ -3,12 +3,22 @@ import {
   Appliance,
   ApplianceId,
   MealMomentId,
+  CookingEffort,
   Recipe,
+  SpecialOccasionId,
+  DrinkRecipe,
   FavoriteRecipe,
   HistoryItem,
   AppView,
 } from '../types';
 import { INITIAL_APPLIANCES } from '../data/kitchenAppliances';
+import {
+  matchRecipesForEffort,
+  matchOccasionRecipes,
+  matchAndSolveDrinks,
+  DrinkTemplate,
+  matchAndSolveRecipes,
+} from '../data/smartRecipes';
 import { fetchGeneratedRecipes, parseIngredientsFromText } from '../services/api';
 
 interface AppContextType {
@@ -30,6 +40,10 @@ interface AppContextType {
   setIngredients: (items: string[]) => void;
   parseAndAddIngredientsFromText: (text: string) => Promise<number>;
 
+  // Cooking Effort (Rápido, Prático, Incrementado)
+  cookingEffort: CookingEffort;
+  setCookingEffort: (effort: CookingEffort) => void;
+
   // Meal Moment
   mealMoment: MealMomentId;
   setMealMoment: (moment: MealMomentId) => void;
@@ -41,7 +55,24 @@ interface AppContextType {
   isLoading: boolean;
   loadingMessage: string;
   generateRecipesFlow: () => Promise<Recipe[]>;
+  generateRecipesForEffortFlow: (effort: CookingEffort) => Promise<Recipe[]>;
   decideForMeQuickFlow: () => Promise<Recipe | null>;
+
+  // Special Occasions
+  selectedOccasion: SpecialOccasionId | null;
+  setSelectedOccasion: (occ: SpecialOccasionId | null) => void;
+  generateOccasionRecipesFlow: (occId: SpecialOccasionId) => Promise<Recipe[]>;
+
+  // Drinks
+  drinkIngredients: string[];
+  addDrinkIngredient: (name: string) => void;
+  removeDrinkIngredient: (name: string) => void;
+  clearDrinkIngredients: () => void;
+  parseAndAddDrinkIngredientsFromText: (text: string) => Promise<number>;
+  drinkRecipes: DrinkTemplate[];
+  selectedDrink: DrinkTemplate | null;
+  setSelectedDrink: (drink: DrinkTemplate | null) => void;
+  generateDrinksFlow: () => DrinkTemplate[];
 
   // Recipe Options & Adaptation
   pantryOnlyMode: boolean;
@@ -94,7 +125,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (e) {
       console.warn(e);
     }
-    // Default popular starting equipment: Fogão, Micro-ondas, Air fryer, Sanduicheira
     return ['fogao', 'microondas', 'airfryer', 'sanduicheira'];
   });
 
@@ -109,7 +139,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const toggleAppliance = (id: string) => {
     setSelectedApplianceIds(prev => {
       if (prev.includes(id)) {
-        // Keep at least one appliance selected
         if (prev.length === 1) return prev;
         return prev.filter(item => item !== id);
       } else {
@@ -140,7 +169,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (e) {
       console.warn(e);
     }
-    return ['Arroz', 'Frango', 'Tomate', 'Ovos', 'Queijo'];
+    return ['Ovos', 'Queijo', 'Tomate', 'Frango', 'Arroz', 'Macarrão', 'Cebola'];
   });
 
   useEffect(() => {
@@ -151,7 +180,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const clean = name.trim();
     if (!clean) return;
     if (!pantryIngredients.some(i => i.toLowerCase() === clean.toLowerCase())) {
-      setPantryIngredientsState(prev => [...prev, clean]);
+      const cap = clean.charAt(0).toUpperCase() + clean.slice(1);
+      setPantryIngredientsState(prev => [...prev, cap]);
     }
   };
 
@@ -189,17 +219,84 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return 0;
   };
 
-  // 4. Meal Moment
+  // 4. Cooking Effort & Meal Moment
+  const [cookingEffort, setCookingEffort] = useState<CookingEffort>('rapido');
   const [mealMoment, setMealMoment] = useState<MealMomentId>('decide_por_mim');
 
-  // 5. Recipes & Generation
+  // 5. Special Occasions
+  const [selectedOccasion, setSelectedOccasion] = useState<SpecialOccasionId | null>(null);
+
+  // 6. Drinks
+  const [drinkIngredients, setDrinkIngredients] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('guessfood_drink_ingredients');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.warn(e);
+    }
+    return ['Vodka', 'Limão', 'Água com gás', 'Açúcar', 'Morango'];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('guessfood_drink_ingredients', JSON.stringify(drinkIngredients));
+  }, [drinkIngredients]);
+
+  const addDrinkIngredient = (name: string) => {
+    const clean = name.trim();
+    if (!clean) return;
+    if (!drinkIngredients.some(i => i.toLowerCase() === clean.toLowerCase())) {
+      const cap = clean.charAt(0).toUpperCase() + clean.slice(1);
+      setDrinkIngredients(prev => [...prev, cap]);
+    }
+  };
+
+  const removeDrinkIngredient = (name: string) => {
+    setDrinkIngredients(prev =>
+      prev.filter(i => i.toLowerCase() !== name.toLowerCase())
+    );
+  };
+
+  const clearDrinkIngredients = () => {
+    setDrinkIngredients([]);
+  };
+
+  const parseAndAddDrinkIngredientsFromText = async (text: string): Promise<number> => {
+    const parsed = await parseIngredientsFromText(text);
+    if (parsed.length > 0) {
+      setDrinkIngredients(prev => {
+        const set = new Set(prev.map(i => i.toLowerCase()));
+        const newItems = [...prev];
+        for (const item of parsed) {
+          const capitalized = item.charAt(0).toUpperCase() + item.slice(1);
+          if (!set.has(item.toLowerCase())) {
+            newItems.push(capitalized);
+            set.add(item.toLowerCase());
+          }
+        }
+        return newItems;
+      });
+      return parsed.length;
+    }
+    return 0;
+  };
+
+  const [drinkRecipes, setDrinkRecipes] = useState<DrinkTemplate[]>([]);
+  const [selectedDrink, setSelectedDrink] = useState<DrinkTemplate | null>(null);
+
+  const generateDrinksFlow = (): DrinkTemplate[] => {
+    const results = matchAndSolveDrinks({ userDrinkIngredients: drinkIngredients });
+    setDrinkRecipes(results);
+    return results;
+  };
+
+  // 7. Recipes & Generation
   const [generatedRecipes, setGeneratedRecipes] = useState<Recipe[]>([]);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [loadingMessage, setLoadingMessage] = useState<string>('');
   const [pantryOnlyMode, setPantryOnlyMode] = useState<boolean>(false);
 
-  // 6. Favorites & History
+  // 8. Favorites & History
   const [favorites, setFavorites] = useState<FavoriteRecipe[]>(() => {
     try {
       const saved = localStorage.getItem('guessfood_favorites');
@@ -253,7 +350,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setHistory(prev => [item, ...prev]);
   };
 
-  // 7. Membership & Modals
+  // 9. Membership & Modals
   const [isLifetime, setIsLifetime] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem('guessfood_lifetime');
@@ -272,7 +369,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState<boolean>(false);
   const [isDecideForMeModalOpen, setIsDecideForMeModalOpen] = useState<boolean>(false);
 
-  // 8. Stats
+  // 10. Stats
   const [recipesDecidedCount, setRecipesDecidedCount] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('guessfood_decided_count');
@@ -286,8 +383,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('guessfood_decided_count', recipesDecidedCount.toString());
   }, [recipesDecidedCount]);
 
-  // Recipe generation flow
+  // Standard generation
   const generateRecipesFlow = async (): Promise<Recipe[]> => {
+    return generateRecipesForEffortFlow(cookingEffort);
+  };
+
+  // Generate recipes filtered for user's chosen effort (Rápido, Prático, Incrementado)
+  const generateRecipesForEffortFlow = async (effort: CookingEffort): Promise<Recipe[]> => {
     if (pantryIngredients.length === 0) {
       throw new Error('Informe ao menos 1 ingrediente');
     }
@@ -296,25 +398,61 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     setIsLoading(true);
-    setLoadingMessage('Analisando sua geladeira e equipamentos...');
+    setLoadingMessage('Preparando receitas sob medida para sua cozinha...');
+    setCookingEffort(effort);
 
     try {
-      // Map appliance names
-      const applianceNames = selectedApplianceIds.map(id => {
-        const found = appliances.find(a => a.id === id);
-        return found ? found.name : id;
+      // 1. Try server-side generation
+      try {
+        const result = await fetchGeneratedRecipes({
+          ingredients: pantryIngredients,
+          appliances: selectedApplianceIds,
+          mealType: effort,
+        });
+        if (result.recipes && result.recipes.length > 0) {
+          setGeneratedRecipes(result.recipes);
+          setRecipesDecidedCount(c => c + 1);
+          setPantryOnlyMode(false);
+          return result.recipes;
+        }
+      } catch (e) {
+        console.warn('Server recipe generation fallback to local solver:', e);
+      }
+
+      // 2. High-quality local solver
+      const localRecipes = matchRecipesForEffort({
+        userIngredients: pantryIngredients,
+        userAppliances: selectedApplianceIds,
+        effort,
       });
 
-      const result = await fetchGeneratedRecipes({
-        ingredients: pantryIngredients,
-        appliances: selectedApplianceIds,
-        mealType: mealMoment,
-      });
-
-      setGeneratedRecipes(result.recipes);
+      setGeneratedRecipes(localRecipes);
       setRecipesDecidedCount(c => c + 1);
       setPantryOnlyMode(false);
-      return result.recipes;
+      return localRecipes;
+    } finally {
+      setIsLoading(false);
+      setLoadingMessage('');
+    }
+  };
+
+  // Generate recipes for a Special Occasion
+  const generateOccasionRecipesFlow = async (occId: SpecialOccasionId): Promise<Recipe[]> => {
+    setIsLoading(true);
+    setLoadingMessage('Criando receitas especiais para esta ocasião...');
+    setSelectedOccasion(occId);
+
+    try {
+      const occasionRecipes = matchOccasionRecipes({
+        occasionId: occId,
+        userIngredients: pantryIngredients,
+        userAppliances: selectedApplianceIds,
+      });
+
+      setGeneratedRecipes(occasionRecipes);
+      setRecipesDecidedCount(c => c + 1);
+      setPantryOnlyMode(false);
+      return occasionRecipes;
     } finally {
       setIsLoading(false);
       setLoadingMessage('');
@@ -327,9 +465,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setLoadingMessage('Decidindo na hora a melhor refeição para você...');
 
     try {
-      const recipes = await generateRecipesFlow();
+      const recipes = await generateRecipesForEffortFlow('rapido');
       if (recipes && recipes.length > 0) {
-        // Pick best matching recipe
         const picked = recipes[0];
         setSelectedRecipe(picked);
         return picked;
@@ -356,6 +493,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         clearIngredients,
         setIngredients,
         parseAndAddIngredientsFromText,
+        cookingEffort,
+        setCookingEffort,
         mealMoment,
         setMealMoment,
         generatedRecipes,
@@ -364,7 +503,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isLoading,
         loadingMessage,
         generateRecipesFlow,
+        generateRecipesForEffortFlow,
         decideForMeQuickFlow,
+        selectedOccasion,
+        setSelectedOccasion,
+        generateOccasionRecipesFlow,
+        drinkIngredients,
+        addDrinkIngredient,
+        removeDrinkIngredient,
+        clearDrinkIngredients,
+        parseAndAddDrinkIngredientsFromText,
+        drinkRecipes,
+        selectedDrink,
+        setSelectedDrink,
+        generateDrinksFlow,
         pantryOnlyMode,
         setPantryOnlyMode,
         favorites,

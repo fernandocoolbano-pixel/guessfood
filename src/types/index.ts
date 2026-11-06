@@ -35,7 +35,20 @@ export interface MealMoment {
   color: string;
 }
 
-export type RecipeCategory = 'rapido' | 'incrementado' | 'criativo';
+// User-chosen cooking effort levels
+export type CookingEffort = 'rapido' | 'pratico' | 'incrementado';
+
+export interface CookingEffortOption {
+  id: CookingEffort;
+  title: string;
+  badge: string;
+  icon: string;
+  tagline: string;
+  description: string;
+  color: string;
+}
+
+export type RecipeCategory = 'rapido' | 'pratico' | 'incrementado' | 'criativo';
 
 export interface RecipeIngredient {
   name: string;
@@ -66,6 +79,39 @@ export interface Recipe {
   steps: RecipeStep[];
   chefTip?: string;
   matchedIngredientsCount?: number;
+  occasionId?: string;
+}
+
+// Special Occasions
+export type SpecialOccasionId =
+  | 'amigos'
+  | 'casal'
+  | 'domingo'
+  | 'happy_hour'
+  | 'comemoracao';
+
+export interface SpecialOccasion {
+  id: SpecialOccasionId;
+  title: string;
+  icon: string;
+  subtitle: string;
+  description: string;
+  color: string;
+  badge: string;
+}
+
+// Drinks
+export interface DrinkRecipe {
+  id: string;
+  title: string;
+  description: string;
+  isAlcoholic: boolean;
+  prepTimeMinutes: number;
+  glassware: string;
+  difficulty: 'Fácil' | 'Médio';
+  ingredientsUsed: RecipeIngredient[];
+  steps: RecipeStep[];
+  bartenderTip?: string;
 }
 
 export interface FavoriteRecipe {
@@ -87,6 +133,8 @@ export type AppView =
   | 'meal-moment'
   | 'wheel'
   | 'recipe'
+  | 'occasions'
+  | 'drinks'
   | 'cooking-mode'
   | 'favorites'
   | 'history'

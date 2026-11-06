@@ -51,7 +51,7 @@ export const ProfileView: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-6 pb-24 max-w-4xl mx-auto">
+    <div className="space-y-6 pb-3 max-w-4xl mx-auto">
       {/* Header Profile Card */}
       <div className="bg-white rounded-3xl p-6 sm:p-8 border border-amber-100 shadow-sm flex flex-col sm:flex-row items-center sm:items-start justify-between gap-6 text-center sm:text-left">
         <div className="flex flex-col sm:flex-row items-center gap-4">

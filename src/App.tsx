@@ -12,11 +12,14 @@ import { MyKitchenView } from './components/MyKitchenView';
 import { IngredientsInputView } from './components/IngredientsInputView';
 import { MealMomentView } from './components/MealMomentView';
 import { HungerWheelView } from './components/HungerWheelView';
+import { SpecialOccasionsView } from './components/SpecialOccasionsView';
+import { DrinksView } from './components/DrinksView';
 import { RecipeDetailView } from './components/RecipeDetailView';
 import { StepByStepCookingMode } from './components/StepByStepCookingMode';
 import { FavoritesView } from './components/FavoritesView';
 import { HistoryView } from './components/HistoryView';
 import { ProfileView } from './components/ProfileView';
+import { Footer } from './components/Footer';
 import { UpgradeModal } from './components/UpgradeModal';
 import { DecideForMeModal } from './components/DecideForMeModal';
 import { Disc } from 'lucide-react';
@@ -25,20 +28,25 @@ function AppContent() {
   const { activeView, isLoading, loadingMessage } = useApp();
 
   return (
-    <div className="min-h-screen bg-stone-50/50 flex flex-col font-sans">
+    <div className="min-h-screen bg-stone-50/50 flex flex-col font-sans overflow-x-hidden w-full max-w-full">
       <Navbar />
 
-      <main className="flex-1 max-w-5xl mx-auto w-full px-4 pt-4 sm:pt-6">
+      <main className="flex-1 max-w-5xl mx-auto w-full px-3 sm:px-4 pt-3 sm:pt-6">
         {activeView === 'home' && <HomeView />}
         {activeView === 'kitchen' && <MyKitchenView />}
         {activeView === 'ingredients' && <IngredientsInputView />}
         {activeView === 'meal-moment' && <MealMomentView />}
         {activeView === 'wheel' && <HungerWheelView />}
+        {activeView === 'occasions' && <SpecialOccasionsView />}
+        {activeView === 'drinks' && <DrinksView />}
         {activeView === 'recipe' && <RecipeDetailView />}
         {activeView === 'favorites' && <FavoritesView />}
         {activeView === 'history' && <HistoryView />}
         {activeView === 'profile' && <ProfileView />}
       </main>
+
+      {/* Harmonious Footer */}
+      <Footer />
 
       {/* Interactive Cooking Mode is a full-screen overlay */}
       {activeView === 'cooking-mode' && <StepByStepCookingMode />}

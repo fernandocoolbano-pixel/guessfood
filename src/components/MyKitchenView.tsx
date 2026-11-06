@@ -25,7 +25,7 @@ export const MyKitchenView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 pb-20 max-w-4xl mx-auto">
+    <div className="space-y-6 pb-3 max-w-4xl mx-auto">
       {/* Header */}
       <div className="bg-white rounded-3xl p-6 sm:p-8 border border-amber-100 shadow-sm space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
