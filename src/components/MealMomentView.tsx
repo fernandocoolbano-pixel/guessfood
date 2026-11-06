@@ -12,6 +12,9 @@ export const MealMomentView: React.FC = () => {
     generateRecipesForEffortFlow,
     isLoading,
     pantryIngredients,
+    appliances,
+    selectedApplianceIds,
+    toggleAppliance,
   } = useApp();
 
   const handleSelectEffort = (effort: CookingEffort) => {
@@ -108,20 +111,85 @@ export const MealMomentView: React.FC = () => {
         })}
       </div>
 
+      {/* CORREÇÃO 4: SELEÇÃO E CONFIRMAÇÃO DOS ELETRODOMÉSTICOS */}
+      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-amber-100 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🔌</span>
+              <h2 className="text-lg sm:text-xl font-black text-stone-900 font-['Outfit']">
+                Equipamentos disponíveis para esta refeição ({selectedApplianceIds.length})
+              </h2>
+            </div>
+            <p className="text-xs sm:text-sm text-stone-500 mt-0.5">
+              Marque o que você quer usar hoje. Nenhuma receita exigirá um equipamento desmarcado.
+            </p>
+          </div>
+
+          <button
+            onClick={() => setActiveView('kitchen')}
+            className="text-xs font-bold text-orange-600 hover:text-orange-700 underline shrink-0 text-left sm:text-right"
+          >
+            Gerenciar em Minha Cozinha →
+          </button>
+        </div>
+
+        {/* Appliances quick-select grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+          {appliances.map(app => {
+            const isSelected = selectedApplianceIds.includes(app.id);
+
+            return (
+              <button
+                key={app.id}
+                type="button"
+                onClick={() => toggleAppliance(app.id)}
+                className={`p-3 rounded-2xl border-2 transition-all flex items-center justify-between gap-2 text-left cursor-pointer active:scale-95 ${
+                  isSelected
+                    ? 'bg-amber-50/80 border-orange-500 text-stone-900 shadow-xs'
+                    : 'bg-stone-50/50 border-stone-200 text-stone-500 opacity-60 hover:opacity-100'
+                }`}
+              >
+                <div className="flex items-center gap-2 truncate">
+                  <span className="text-xl shrink-0">{app.icon}</span>
+                  <span className="text-xs font-black truncate">{app.name}</span>
+                </div>
+
+                <div
+                  className={`w-5 h-5 rounded-full flex items-center justify-center border shrink-0 transition-colors ${
+                    isSelected
+                      ? 'bg-orange-500 border-orange-500 text-white'
+                      : 'border-stone-300 text-transparent'
+                  }`}
+                >
+                  <Check className="w-3 h-3 stroke-[3]" />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {selectedApplianceIds.length === 0 && (
+          <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs font-bold text-center">
+            ⚠️ Selecione ao menos 1 equipamento (ex: Fogão ou Micro-ondas) para prosseguir.
+          </div>
+        )}
+      </div>
+
       {/* Advance CTA */}
       <div className="bg-white rounded-3xl p-6 border border-amber-100 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
         <div>
           <h4 className="font-black text-stone-900 text-base">
-            Estilo definido: {cookingEffort.toUpperCase()}
+            Estilo definido: {cookingEffort.toUpperCase()} • {selectedApplianceIds.length} Eletros
           </h4>
           <p className="text-xs text-stone-500">
-            A Roleta da Fome vai girar entre as melhores receitas desse estilo!
+            A Roleta da Fome vai girar entre as melhores receitas possíveis na sua cozinha real!
           </p>
         </div>
 
         <button
           onClick={handleProceedToWheel}
-          disabled={isLoading || pantryIngredients.length === 0}
+          disabled={isLoading || pantryIngredients.length === 0 || selectedApplianceIds.length === 0}
           className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-gradient-to-r from-orange-500 via-rose-500 to-amber-500 hover:brightness-110 active:scale-95 text-white font-black text-base shadow-xl shadow-orange-500/25 flex items-center justify-center gap-3 transition-all cursor-pointer disabled:opacity-50"
         >
           <Disc className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />

@@ -20,6 +20,7 @@ import {
   matchAndSolveRecipes,
 } from '../data/smartRecipes';
 import { fetchGeneratedRecipes, parseIngredientsFromText } from '../services/api';
+import { validateAndAdaptRecipe } from '../utils/ingredientValidator';
 
 interface AppContextType {
   // Navigation
@@ -289,12 +290,87 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return results;
   };
 
-  // 7. Recipes & Generation
-  const [generatedRecipes, setGeneratedRecipes] = useState<Recipe[]>([]);
-  const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
+  // 7. Recipes & Generation with Session Persistence
+  const [generatedRecipes, setGeneratedRecipes] = useState<Recipe[]>(() => {
+    try {
+      const saved = sessionStorage.getItem('guessfood_session_recipes');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.warn(e);
+    }
+    return [];
+  });
+
+  const [selectedRecipe, setSelectedRecipeState] = useState<Recipe | null>(() => {
+    try {
+      const saved = sessionStorage.getItem('guessfood_session_selected_recipe');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.warn(e);
+    }
+    return null;
+  });
+
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [loadingMessage, setLoadingMessage] = useState<string>('');
-  const [pantryOnlyMode, setPantryOnlyMode] = useState<boolean>(false);
+  const [pantryOnlyMode, setPantryOnlyModeState] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem('guessfood_session_pantry_only') === 'true';
+    } catch (e) {
+      return false;
+    }
+  });
+
+  // Persist session recipes
+  useEffect(() => {
+    try {
+      if (generatedRecipes.length > 0) {
+        sessionStorage.setItem('guessfood_session_recipes', JSON.stringify(generatedRecipes));
+      }
+    } catch (e) {
+      console.warn(e);
+    }
+  }, [generatedRecipes]);
+
+  // Persist selected recipe
+  const setSelectedRecipe = (recipe: Recipe | null) => {
+    setSelectedRecipeState(recipe);
+    try {
+      if (recipe) {
+        sessionStorage.setItem('guessfood_session_selected_recipe', JSON.stringify(recipe));
+      } else {
+        sessionStorage.removeItem('guessfood_session_selected_recipe');
+      }
+    } catch (e) {
+      console.warn(e);
+    }
+  };
+
+  // Toggle pantryOnlyMode with immediate recipe adaptation
+  const setPantryOnlyMode = (mode: boolean) => {
+    setPantryOnlyModeState(mode);
+    try {
+      sessionStorage.setItem('guessfood_session_pantry_only', mode ? 'true' : 'false');
+    } catch (e) {}
+
+    if (selectedRecipe) {
+      const { recipe: adapted } = validateAndAdaptRecipe(
+        selectedRecipe,
+        pantryIngredients,
+        selectedApplianceIds,
+        mode
+      );
+      setSelectedRecipeState(adapted);
+      try {
+        sessionStorage.setItem('guessfood_session_selected_recipe', JSON.stringify(adapted));
+      } catch (e) {}
+
+      // Also update within generated recipes array
+      setGeneratedRecipes(prev =>
+        prev.map(r => (r.id === selectedRecipe.id ? adapted : r))
+      );
+    }
+  };
 
   // 8. Favorites & History
   const [favorites, setFavorites] = useState<FavoriteRecipe[]>(() => {
@@ -410,10 +486,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           mealType: effort,
         });
         if (result.recipes && result.recipes.length > 0) {
-          setGeneratedRecipes(result.recipes);
+          const validatedAi = result.recipes.map(r =>
+            validateAndAdaptRecipe(r, pantryIngredients, selectedApplianceIds, false).recipe
+          );
+          setGeneratedRecipes(validatedAi);
           setRecipesDecidedCount(c => c + 1);
-          setPantryOnlyMode(false);
-          return result.recipes;
+          setPantryOnlyModeState(false);
+          return validatedAi;
         }
       } catch (e) {
         console.warn('Server recipe generation fallback to local solver:', e);
@@ -426,10 +505,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         effort,
       });
 
-      setGeneratedRecipes(localRecipes);
+      const validatedLocal = localRecipes.map(r =>
+        validateAndAdaptRecipe(r, pantryIngredients, selectedApplianceIds, false).recipe
+      );
+
+      setGeneratedRecipes(validatedLocal);
       setRecipesDecidedCount(c => c + 1);
-      setPantryOnlyMode(false);
-      return localRecipes;
+      setPantryOnlyModeState(false);
+      return validatedLocal;
     } finally {
       setIsLoading(false);
       setLoadingMessage('');

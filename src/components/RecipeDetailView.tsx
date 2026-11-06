@@ -19,6 +19,8 @@ import {
   Award,
 } from 'lucide-react';
 
+import { validateAndAdaptRecipe } from '../utils/ingredientValidator';
+
 export const RecipeDetailView: React.FC = () => {
   const {
     selectedRecipe,
@@ -28,6 +30,8 @@ export const RecipeDetailView: React.FC = () => {
     markAsCooked,
     pantryOnlyMode,
     setPantryOnlyMode,
+    pantryIngredients,
+    selectedApplianceIds,
   } = useApp();
 
   const [hasCooked, setHasCooked] = useState(false);
@@ -41,32 +45,36 @@ export const RecipeDetailView: React.FC = () => {
           Nenhuma receita selecionada
         </h2>
         <button
-          onClick={() => setActiveView('home')}
+          onClick={() => setActiveView('wheel')}
           className="px-6 py-2.5 rounded-xl bg-orange-600 text-white font-bold text-sm"
         >
-          Voltar ao início
+          ← Voltar às receitas
         </button>
       </div>
     );
   }
 
-  const isFav = isFavorite(selectedRecipe.id);
+  // Central validation: ensures 100% coherence between Summary, Badges, Cards and Steps
+  const validation = validateAndAdaptRecipe(
+    selectedRecipe,
+    pantryIngredients,
+    selectedApplianceIds,
+    pantryOnlyMode
+  );
 
-  // Compute ingredient counts
-  const totalIngredients = selectedRecipe.ingredientsUsed.length;
-  const ownedIngredients = selectedRecipe.ingredientsUsed.filter(i => i.isOwned).length;
-  const isMissingSomething = !selectedRecipe.hasAllIngredients || ownedIngredients < totalIngredients;
+  const activeRecipe = validation.recipe;
+  const isFav = isFavorite(activeRecipe.id);
 
   const handleShare = () => {
     if (navigator.share) {
       navigator.share({
-        title: selectedRecipe.title,
-        text: `Olha a receita que o GuessFood decidiu pra mim: ${selectedRecipe.title}!`,
+        title: activeRecipe.title,
+        text: `Olha a receita que o GuessFood decidiu pra mim: ${activeRecipe.title}!`,
         url: window.location.href,
       }).catch(() => {});
     } else {
       navigator.clipboard.writeText(
-        `🍽️ GuessFood decidiu: ${selectedRecipe.title}!\n⏱️ ${selectedRecipe.prepTimeMinutes}min | 👨‍🍳 ${selectedRecipe.difficulty}`
+        `🍽️ GuessFood decidiu: ${activeRecipe.title}!\n⏱️ ${activeRecipe.prepTimeMinutes}min | 👨‍🍳 ${activeRecipe.difficulty}`
       );
       setCopiedLink(true);
       setTimeout(() => setCopiedLink(false), 2500);
@@ -74,27 +82,27 @@ export const RecipeDetailView: React.FC = () => {
   };
 
   const handleMarkCooked = () => {
-    markAsCooked(selectedRecipe, 5);
+    markAsCooked(activeRecipe, 5);
     setHasCooked(true);
   };
 
   return (
     <div className="space-y-6 pb-3 max-w-4xl mx-auto">
-      {/* Top Navigation */}
+      {/* Top Navigation - CORREÇÃO 3: VOLTAR ÀS RECEITAS */}
       <div className="flex items-center justify-between">
         <button
           onClick={() => setActiveView('wheel')}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-stone-100 text-stone-700 font-bold text-xs border border-stone-200 transition-colors"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white hover:bg-stone-100 text-stone-800 font-black text-xs sm:text-sm border-2 border-stone-200/80 shadow-xs active:scale-95 transition-all cursor-pointer"
         >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Voltar para a Roleta</span>
+          <ArrowLeft className="w-4 h-4 text-orange-600 stroke-[2.5]" />
+          <span>← VOLTAR ÀS RECEITAS</span>
         </button>
 
         <div className="flex items-center gap-2">
           {/* Favorite Button */}
           <button
-            onClick={() => toggleFavorite(selectedRecipe)}
-            className={`p-2.5 rounded-xl border transition-all ${
+            onClick={() => toggleFavorite(activeRecipe)}
+            className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
               isFav
                 ? 'bg-rose-50 border-rose-300 text-rose-600'
                 : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50'
@@ -107,7 +115,7 @@ export const RecipeDetailView: React.FC = () => {
           {/* Share Button */}
           <button
             onClick={handleShare}
-            className="p-2.5 rounded-xl bg-white border border-stone-200 text-stone-600 hover:bg-stone-50 text-xs font-bold flex items-center gap-1"
+            className="p-2.5 rounded-xl bg-white border border-stone-200 text-stone-600 hover:bg-stone-50 text-xs font-bold flex items-center gap-1 cursor-pointer"
             title="Compartilhar"
           >
             <Share2 className="w-4 h-4" />
@@ -126,7 +134,7 @@ export const RecipeDetailView: React.FC = () => {
               ? 'bg-orange-600'
               : 'bg-purple-600'
           }`}>
-            {selectedRecipe.category === 'rapido' ? '⚡ Rápido' : selectedRecipe.category === 'incrementado' ? '🔥 Incrementado' : '🎨 Criativo'}
+            {activeRecipe.category === 'rapido' ? '⚡ Rápido' : activeRecipe.category === 'incrementado' ? '🔥 Incrementado' : '🎨 Criativo'}
           </span>
 
           <span className="text-xs font-bold text-stone-500">
@@ -135,21 +143,21 @@ export const RecipeDetailView: React.FC = () => {
         </div>
 
         <h1 className="text-2xl sm:text-4xl font-black text-stone-900 font-['Outfit'] leading-tight">
-          {selectedRecipe.title}
+          {activeRecipe.title}
         </h1>
 
         <p className="text-sm sm:text-base text-stone-600 leading-relaxed font-medium">
-          {selectedRecipe.description}
+          {activeRecipe.description}
         </p>
 
-        {/* 4 Essential Recipe Badges per Section 12 */}
+        {/* 4 Essential Recipe Badges */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2">
           <div className="p-3 rounded-2xl bg-amber-50/70 border border-amber-200/60 flex items-center gap-2.5">
             <span className="text-2xl">⏱️</span>
             <div>
               <span className="text-[10px] font-bold text-stone-500 uppercase block">Tempo</span>
               <span className="text-xs sm:text-sm font-black text-stone-800">
-                {selectedRecipe.prepTimeMinutes} min
+                {activeRecipe.prepTimeMinutes} min
               </span>
             </div>
           </div>
@@ -159,7 +167,7 @@ export const RecipeDetailView: React.FC = () => {
             <div>
               <span className="text-[10px] font-bold text-stone-500 uppercase block">Dificuldade</span>
               <span className="text-xs sm:text-sm font-black text-stone-800">
-                {selectedRecipe.difficulty}
+                {activeRecipe.difficulty}
               </span>
             </div>
           </div>
@@ -169,7 +177,7 @@ export const RecipeDetailView: React.FC = () => {
             <div>
               <span className="text-[10px] font-bold text-stone-500 uppercase block">Porções</span>
               <span className="text-xs sm:text-sm font-black text-stone-800">
-                {selectedRecipe.servings} pessoas
+                {activeRecipe.servings} pessoas
               </span>
             </div>
           </div>
@@ -179,70 +187,75 @@ export const RecipeDetailView: React.FC = () => {
             <div>
               <span className="text-[10px] font-bold text-stone-500 uppercase block">Equipamento</span>
               <span className="text-xs sm:text-sm font-black text-stone-800 capitalize truncate block">
-                {selectedRecipe.appliancesUsed.join(', ')}
+                {activeRecipe.appliancesUsed.join(', ')}
               </span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* SECTION 13: "TENHO QUASE TUDO" WIDGET (when applicable) */}
-      {isMissingSomething ? (
-        <div className="bg-amber-50/80 rounded-3xl p-6 border-2 border-amber-300 shadow-sm space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="space-y-1">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-200 text-amber-900 text-xs font-black uppercase tracking-wider">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>⭐ Você está quase lá!</span>
-              </div>
-              <p className="text-sm font-bold text-stone-800">
-                Você já possui <strong>{ownedIngredients}</strong> dos <strong>{totalIngredients}</strong> ingredientes necessários.
-              </p>
-              <p className="text-xs text-stone-600">
-                🛒 Faltaria apenas: <strong className="text-orange-700">{selectedRecipe.missingIngredient || '1 ingrediente simples'}</strong>
-              </p>
-            </div>
-          </div>
+      {/* SECTION 13: DISPONIBILIDADE E MODALIDADE (100% COERENTE) */}
+      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-amber-100 shadow-sm space-y-4">
+        {/* Toggle between "FAZER SÓ COM O QUE TENHO" and "POSSO COMPRAR O QUE FALTA" */}
+        <div className="bg-stone-100/80 rounded-2xl p-1.5 grid grid-cols-1 sm:grid-cols-2 gap-2 border border-stone-200">
+          <button
+            onClick={() => setPantryOnlyMode(true)}
+            className={`py-3 px-4 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+              pantryOnlyMode
+                ? 'bg-orange-600 text-white shadow-md'
+                : 'text-stone-700 hover:bg-white/60'
+            }`}
+          >
+            <Check className="w-4 h-4 stroke-[2.5]" />
+            <span>FAZER SÓ COM O QUE TENHO</span>
+          </button>
 
-          {/* Dual Toggle Choice: Fazer só com o que tenho VS Posso comprar */}
-          <div className="bg-white rounded-2xl p-2 border border-amber-200 grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <button
-              onClick={() => setPantryOnlyMode(true)}
-              className={`py-3 px-4 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center justify-center gap-2 ${
-                pantryOnlyMode
-                  ? 'bg-orange-600 text-white shadow-md'
-                  : 'bg-stone-50 text-stone-700 hover:bg-stone-100'
-              }`}
-            >
-              <Check className="w-4 h-4" />
-              <span>FAZER SÓ COM O QUE TENHO</span>
-            </button>
-
-            <button
-              onClick={() => setPantryOnlyMode(false)}
-              className={`py-3 px-4 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center justify-center gap-2 ${
-                !pantryOnlyMode
-                  ? 'bg-amber-500 text-white shadow-md'
-                  : 'bg-stone-50 text-stone-700 hover:bg-stone-100'
-              }`}
-            >
-              <ShoppingBag className="w-4 h-4" />
-              <span>POSSO COMPRAR O QUE FALTA</span>
-            </button>
-          </div>
-
-          {pantryOnlyMode && (
-            <div className="p-3.5 rounded-xl bg-orange-100/70 border border-orange-200 text-orange-950 text-xs leading-relaxed">
-              <strong>💡 Versão adaptada ativada:</strong> {selectedRecipe.adaptedForPantryOnly || 'Receita adaptada para usar estritamente o que você já possui em mãos.'}
-            </div>
-          )}
+          <button
+            onClick={() => setPantryOnlyMode(false)}
+            className={`py-3 px-4 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+              !pantryOnlyMode
+                ? 'bg-amber-500 text-white shadow-md'
+                : 'text-stone-700 hover:bg-white/60'
+            }`}
+          >
+            <ShoppingBag className="w-4 h-4" />
+            <span>POSSO COMPRAR O QUE FALTA</span>
+          </button>
         </div>
-      ) : (
-        <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-200 text-emerald-900 text-xs sm:text-sm font-bold flex items-center gap-2.5">
-          <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-          <span>✓ Você já tem todos os ingredientes necessários para esta receita!</span>
-        </div>
-      )}
+
+        {/* Dynamic Coherent Status Card */}
+        {pantryOnlyMode ? (
+          <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 space-y-1">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              <strong className="text-sm font-black">
+                ✓ Modo &ldquo;Fazer só com o que tenho&rdquo; ativado!
+              </strong>
+            </div>
+            <p className="text-xs text-emerald-800 leading-relaxed pl-7">
+              {activeRecipe.adaptedForPantryOnly || 'Receita adaptada para utilizar exclusivamente os ingredientes da sua cozinha.'}
+            </p>
+          </div>
+        ) : validation.missingCount > 0 ? (
+          <div className="p-4 rounded-2xl bg-amber-50/80 border-2 border-amber-300 text-stone-800 space-y-2">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-200 text-amber-900 text-xs font-black uppercase tracking-wider">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>⭐ Você está quase lá!</span>
+            </div>
+            <p className="text-sm font-bold text-stone-800">
+              Você já possui <strong>{validation.ownedCount}</strong> dos <strong>{validation.totalIngredients}</strong> ingredientes necessários.
+            </p>
+            <p className="text-xs text-stone-600">
+              🛒 Faltaria apenas comprar: <strong className="text-orange-700">{validation.missingItems.join(', ')}</strong>
+            </p>
+          </div>
+        ) : (
+          <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs sm:text-sm font-bold flex items-center gap-2.5">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            <span>✓ Você já tem todos os ingredientes necessários para esta receita em casa!</span>
+          </div>
+        )}
+      </div>
 
       {/* SECTION 12: INGREDIENTES — VOCÊ VAI USAR */}
       <div className="bg-white rounded-3xl p-6 sm:p-8 border border-amber-100 shadow-sm space-y-4">
@@ -253,50 +266,49 @@ export const RecipeDetailView: React.FC = () => {
               Você vai usar
             </h2>
           </div>
-          <span className="text-xs font-bold text-stone-400">
-            {selectedRecipe.ingredientsUsed.length} itens
+          <span className="text-xs font-bold text-stone-500">
+            {activeRecipe.ingredientsUsed.length} itens {pantryOnlyMode ? '(100% da sua despensa)' : ''}
           </span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-          {selectedRecipe.ingredientsUsed.map((ing, idx) => {
+          {activeRecipe.ingredientsUsed.map((ing, idx) => {
             const isMissing = !ing.isOwned;
-            const isOmittedInPantryOnly = isMissing && pantryOnlyMode;
 
             return (
               <div
                 key={idx}
                 className={`p-3 rounded-2xl border flex items-center justify-between gap-2 transition-all ${
-                  isOmittedInPantryOnly
-                    ? 'bg-stone-50 border-stone-200 opacity-50 line-through'
-                    : isMissing
-                    ? 'bg-amber-50/70 border-amber-300'
+                  isMissing
+                    ? 'bg-amber-50/80 border-amber-300'
                     : 'bg-stone-50/70 border-stone-200/80'
                 }`}
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5 truncate">
                   <div
-                    className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                    className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 ${
                       ing.isOwned
                         ? 'bg-emerald-500 text-white'
-                        : isOmittedInPantryOnly
-                        ? 'bg-stone-300 text-stone-600'
                         : 'bg-amber-400 text-amber-950'
                     }`}
                   >
                     {ing.isOwned ? '✓' : '!'}
                   </div>
-                  <div>
-                    <span className="text-sm font-black text-stone-800 block">
+                  <div className="truncate">
+                    <span className="text-sm font-black text-stone-800 block truncate">
                       {ing.name}
                     </span>
                     <span className="text-xs text-stone-500">{ing.amount}</span>
                   </div>
                 </div>
 
-                {isMissing && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-200 text-amber-900 shrink-0">
-                    {pantryOnlyMode ? 'Dispensado' : 'Falta'}
+                {isMissing ? (
+                  <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-amber-200 text-amber-900 shrink-0">
+                    Falta Comprar
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md shrink-0">
+                    Na cozinha
                   </span>
                 )}
               </div>
@@ -329,7 +341,7 @@ export const RecipeDetailView: React.FC = () => {
 
         {/* Steps List */}
         <div className="space-y-3.5">
-          {selectedRecipe.steps.map(step => (
+          {activeRecipe.steps.map(step => (
             <div
               key={step.stepNumber}
               className="p-4 sm:p-5 rounded-2xl bg-amber-50/40 border border-amber-100/80 flex items-start gap-4"
@@ -359,12 +371,12 @@ export const RecipeDetailView: React.FC = () => {
         </div>
 
         {/* Chef Tip */}
-        {selectedRecipe.chefTip && (
+        {activeRecipe.chefTip && (
           <div className="p-4 rounded-2xl bg-amber-100/60 border border-amber-200 text-stone-800 text-xs sm:text-sm flex items-start gap-3">
             <span className="text-xl">💡</span>
             <div>
               <strong className="block font-black text-amber-950">Dica do Chef GuessFood:</strong>
-              <p className="text-stone-700 mt-0.5">{selectedRecipe.chefTip}</p>
+              <p className="text-stone-700 mt-0.5">{activeRecipe.chefTip}</p>
             </div>
           </div>
         )}

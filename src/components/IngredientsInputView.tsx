@@ -42,6 +42,9 @@ export const IngredientsInputView: React.FC = () => {
   const [singleInput, setSingleInput] = useState('');
 
   const recognitionRef = useRef<any>(null);
+  const silenceTimerRef = useRef<any>(null);
+  const transcriptRef = useRef<string>('');
+  const isProcessingRef = useRef<boolean>(false);
 
   useEffect(() => {
     // Check Web Speech API availability
@@ -54,10 +57,23 @@ export const IngredientsInputView: React.FC = () => {
     }
   }, []);
 
+  const resetSilenceTimer = () => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+    }
+    // Automatically wrap up if user pauses for 2.8 seconds after speaking
+    silenceTimerRef.current = setTimeout(() => {
+      if (recognitionRef.current && transcriptRef.current.trim()) {
+        stopListeningAndProcess();
+      }
+    }, 2800);
+  };
+
   const startListening = () => {
     setSpeechError(null);
     setConfirmedMessage(null);
     setTranscript('');
+    transcriptRef.current = '';
 
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -69,39 +85,53 @@ export const IngredientsInputView: React.FC = () => {
     }
 
     try {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.abort(); } catch (e) {}
+      }
+
       const recognition = new SpeechRecognition();
       recognition.lang = 'pt-BR';
-      recognition.continuous = false;
+      recognition.continuous = true;
       recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
 
       recognition.onstart = () => {
         setIsListening(true);
       };
 
       recognition.onresult = (event: any) => {
-        let currentText = '';
+        let fullText = '';
         for (let i = 0; i < event.results.length; i++) {
-          currentText += event.results[i][0].transcript;
+          fullText += ' ' + event.results[i][0].transcript;
         }
-        setTranscript(currentText);
+        const trimmed = fullText.trim();
+        setTranscript(trimmed);
+        transcriptRef.current = trimmed;
+        resetSilenceTimer();
       };
 
       recognition.onerror = (event: any) => {
-        console.warn('Speech recognition error:', event.error);
-        setIsListening(false);
+        console.warn('Speech recognition event error:', event.error);
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          setSpeechError('Permissão de microfone negada. Você pode digitar abaixo.');
+          setIsListening(false);
+          setSpeechError('Permissão de microfone negada. Você pode digitar os ingredientes abaixo.');
           setShowManualInput(true);
         } else if (event.error === 'no-speech') {
-          setSpeechError('Não ouvimos nada. Tente falar um pouco mais perto do microfone.');
+          // Keep listening or reset
         } else {
-          setSpeechError('Erro ao capturar áudio. Digite seus ingredientes abaixo.');
+          setIsListening(false);
+          setSpeechError('Não foi possível capturar o áudio com clareza. Digite abaixo.');
           setShowManualInput(true);
         }
       };
 
-      recognition.onend = async () => {
+      recognition.onend = () => {
         setIsListening(false);
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        const textToProcess = transcriptRef.current.trim();
+        if (textToProcess && !isProcessingRef.current) {
+          processTranscribedText(textToProcess);
+        }
       };
 
       recognitionRef.current = recognition;
@@ -113,38 +143,47 @@ export const IngredientsInputView: React.FC = () => {
     }
   };
 
-  const stopListeningAndProcess = async () => {
+  const stopListeningAndProcess = () => {
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     if (recognitionRef.current) {
-      recognitionRef.current.stop();
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {}
     }
     setIsListening(false);
-
-    if (transcript.trim()) {
-      await processTranscribedText(transcript);
+    const textToProcess = transcriptRef.current.trim() || transcript.trim();
+    if (textToProcess && !isProcessingRef.current) {
+      processTranscribedText(textToProcess);
     }
   };
 
-  // Watch transcript after speech ends or user finishes
-  useEffect(() => {
-    if (!isListening && transcript.trim() && !isProcessing) {
-      processTranscribedText(transcript);
-    }
-  }, [isListening]);
-
   const processTranscribedText = async (textToProcess: string) => {
+    if (!textToProcess.trim() || isProcessingRef.current) return;
+    isProcessingRef.current = true;
     setIsProcessing(true);
     setConfirmedMessage(null);
+
+    // 6-second emergency watchdog so user is NEVER stuck loading
+    const watchdog = setTimeout(() => {
+      isProcessingRef.current = false;
+      setIsProcessing(false);
+    }, 6000);
+
     try {
       const count = await parseAndAddIngredientsFromText(textToProcess);
       setConfirmedMessage(
         count > 0
           ? `Entendi! Encontrei estes ${count} ingredientes na sua cozinha:`
-          : 'Ingredientes adicionados com sucesso!'
+          : 'Ingredientes organizados com sucesso!'
       );
       setTranscript('');
+      transcriptRef.current = '';
     } catch (e) {
-      console.warn(e);
+      console.warn('Error processing text:', e);
+      setSpeechError('Tivemos um problema ao processar. Você pode digitar abaixo.');
     } finally {
+      clearTimeout(watchdog);
+      isProcessingRef.current = false;
       setIsProcessing(false);
     }
   };
@@ -153,7 +192,6 @@ export const IngredientsInputView: React.FC = () => {
   const handleManualTextSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualText.trim()) return;
-    setIsProcessing(true);
     await processTranscribedText(manualText);
     setManualText('');
   };

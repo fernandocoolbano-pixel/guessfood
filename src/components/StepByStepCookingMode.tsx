@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import confetti from 'canvas-confetti';
-import { playCelebrationSound } from '../utils/audio';
+import { playCelebrationSound, playTimerBeepSound } from '../utils/audio';
 import {
   X,
   ChevronLeft,
@@ -51,7 +51,7 @@ export const StepByStepCookingMode: React.FC = () => {
           if (prev <= 1) {
             clearInterval(interval);
             setIsTimerRunning(false);
-            playCelebrationSound();
+            playTimerBeepSound();
             return 0;
           }
           return prev - 1;

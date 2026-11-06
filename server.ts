@@ -27,6 +27,102 @@ if (process.env.GEMINI_API_KEY) {
   });
 }
 
+// Fast timeout wrapper to prevent Gemini calls from stalling user UX
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
+}
+
+// Known culinary items for semantic tokenization in Portuguese
+const SERVER_KNOWN_FOODS = [
+  'arroz', 'feijao', 'feijão', 'macarrao', 'macarrão', 'espaguete', 'massa',
+  'ovo', 'ovos', 'frango', 'peito de frango', 'carne', 'carne moida', 'carne moída',
+  'bife', 'calabresa', 'presunto', 'bacon', 'peixe', 'atum', 'salmao', 'salmão',
+  'camarao', 'camarão', 'queijo', 'mussarela', 'tomate', 'tomates', 'cebola',
+  'cebolas', 'alho', 'batata', 'batatas', 'cenoura', 'cenouras', 'abobrinha',
+  'alface', 'couve', 'brocolis', 'brócolis', 'milho', 'ervilha', 'azeitona',
+  'leite', 'creme de leite', 'manteiga', 'margarina', 'oleo', 'óleo', 'azeite',
+  'limao', 'limão', 'laranja', 'banana', 'maca', 'maçã', 'morango', 'pao', 'pão',
+  'paes', 'pães', 'torrada', 'farinha', 'aveia', 'acucar', 'açúcar', 'sal',
+  'pimenta', 'oregano', 'orégano', 'cheiro verde', 'molho de tomate'
+];
+
+function parseSemanticServer(text: string): string[] {
+  const fillers = [
+    /no arm[aá]rio\s+(tenho|tem)?/gi,
+    /na geladeira\s+(tenho|tem)?/gi,
+    /na despensa\s+(tenho|tem)?/gi,
+    /na cozinha\s+(tenho|tem)?/gi,
+    /em casa\s+(tenho|tem)?/gi,
+    /\b(eu tenho|n[oó]s temos|aqui tem|aqui tenho|tenho aqui|tem aqui)\b/gi,
+    /\b(tenho|tem|temos|sobrou|sobras de|comprei|bastante|um pouco de|pouco de|alguns|algumas)\b/gi,
+    /\b(fatias de|peda[cç]o de|unidades? de|pacote de|lata de)\b/gi,
+    /\b(tamb[eé]m|al[eé]m disso|ainda|mais)\b/gi,
+  ];
+
+  let cleaned = text;
+  for (const f of fillers) {
+    cleaned = cleaned.replace(f, ' ');
+  }
+
+  // Split by common delimiters and conjunctions
+  const rawParts = cleaned
+    .replace(/\s+(e|com|al[eé]m de|\+)\s+/gi, ',')
+    .split(/[,;\n\.\+\/&]/g)
+    .map(p => p.trim())
+    .filter(Boolean);
+
+  const items: string[] = [];
+
+  for (const part of rawParts) {
+    const stripped = part
+      .replace(/^\d+(\s*g|\s*kg|\s*ml|\s*l|\s*colheres?|\s*x[ií]caras?|\s*unidades?)?\s*/i, '')
+      .replace(/^(um|uma|dois|duas|tr[eê]s|quatro)\s+/i, '')
+      .trim();
+
+    const words = stripped.split(/\s+/).filter(w => w.length > 1);
+
+    if (words.length > 2) {
+      // Multiple words without punctuation
+      let i = 0;
+      while (i < words.length) {
+        const two = words.slice(i, i + 2).join(' ').toLowerCase();
+        const single = words[i].toLowerCase();
+        if (SERVER_KNOWN_FOODS.includes(two)) {
+          items.push(two);
+          i += 2;
+          continue;
+        }
+        if (SERVER_KNOWN_FOODS.includes(single) || (!['de', 'com', 'sem', 'para', 'em', 'no', 'na'].includes(single) && single.length > 2)) {
+          items.push(single);
+        }
+        i++;
+      }
+    } else if (stripped.length > 1 && !/^(de|com|sem|para|o|a|os|as|e|no|na|em)$/i.test(stripped)) {
+      items.push(stripped);
+    }
+  }
+
+  // Deduplicate and format capitalize
+  const finalSet: string[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    const clean = item.replace(/[^\p{L}\s]/gu, '').trim();
+    if (!clean) continue;
+    const lower = clean.toLowerCase();
+    const root = lower.endsWith('s') && !lower.endsWith('arroz') ? lower.slice(0, -1) : lower;
+    if (!seen.has(root)) {
+      seen.add(root);
+      finalSet.push(clean.charAt(0).toUpperCase() + clean.slice(1));
+    }
+  }
+
+  return finalSet;
+}
+
 // 1. Parse free-form ingredient text
 app.post('/api/parse-ingredients', async (req: Request, res: Response) => {
   try {
@@ -37,46 +133,45 @@ app.post('/api/parse-ingredients', async (req: Request, res: Response) => {
 
     if (ai) {
       try {
-        const response = await ai.models.generateContent({
+        const aiPromise = ai.models.generateContent({
           model: 'gemini-3.8-flash',
-          contents: `Você é o extrator de ingredientes culinários do app GuessFood. O usuário escreveu em português: "${text}".
-Extraia apenas os nomes dos ingredientes limpos e normalizados em português (singular, minúsculo, sem pontuação, sem quantidades numéricas, apenas os alimentos/ingredientes).
-Exemplo: "tenho 2 tomates, arroz que sobrou de ontem, frango desfiado e cebola" -> ["tomate", "arroz", "frango", "cebola"].`,
+          contents: `Você é o extrator de ingredientes culinários do app GuessFood. O usuário falou em português: "${text}".
+Extraia CADA ingrediente/alimento como um item independente em um array JSON.
+NUNCA retorne a frase inteira como um único item.
+Remova verbos (tenho, tem, comprei), locais (geladeira, armário) e quantificadores (um pouco de, 2 colheres).
+Exemplo: "tenho ovos queijo tomate no armário tenho arroz e cebola" -> ["Ovos", "Queijo", "Tomate", "Arroz", "Cebola"].`,
           config: {
             responseMimeType: 'application/json',
             responseSchema: {
               type: Type.ARRAY,
               items: {
                 type: Type.STRING,
-                description: 'Nome limpo do ingrediente',
+                description: 'Nome limpo do ingrediente individual',
               },
             },
           },
         });
 
+        // Fast 3500ms timeout
+        const response = await withTimeout(aiPromise, 3500);
         const parsed = JSON.parse(response.text ?? '[]');
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return res.json({ ingredients: parsed });
+          const capitalized = parsed
+            .map((s: string) => s.trim())
+            .filter((s: string) => s.length > 1 && !/^(tenho|tem|no|na|armario|armário|geladeira)$/i.test(s))
+            .map((s: string) => s.charAt(0).toUpperCase() + s.slice(1));
+          if (capitalized.length > 0) {
+            return res.json({ ingredients: capitalized });
+          }
         }
       } catch (geminiErr) {
-        console.warn('Gemini parse error, falling back to regex parser:', geminiErr);
+        console.warn('Gemini parse error or timeout, running instant semantic parser:', geminiErr);
       }
     }
 
-    // High quality Portuguese fallback regex parser
-    const cleanItems = text
-      .toLowerCase()
-      .replace(/\b(tenho|tem|temos|na geladeira|em casa|sobrou|sobras de|comprei|bastante|um pouco de|uns|umas|pouco de|alguns|algumas)\b/g, '')
-      .replace(/\s+e\s+/g, ',')
-      .split(/[,;\n\.\+\/&]/g)
-      .map(item => item.trim())
-      .map(item => item.replace(/^\d+(\s*g|\s*kg|\s*ml|\s*l|\s*colheres?|\s*xícaras?|\s*unidades?)?\s*/i, ''))
-      .map(item => item.replace(/^(um|uma|dois|duas|três|quatro)\s+/i, ''))
-      .map(item => item.trim())
-      .filter(item => item.length > 1 && !/^(de|com|sem|para|o|a|os|as|e)$/.test(item));
-
-    const uniqueItems = Array.from(new Set(cleanItems));
-    return res.json({ ingredients: uniqueItems });
+    // Instant local semantic parser
+    const fallbackItems = parseSemanticServer(text);
+    return res.json({ ingredients: fallbackItems });
   } catch (error: any) {
     console.error('Error in /api/parse-ingredients:', error);
     return res.status(500).json({ error: 'Erro ao interpretar ingredientes' });

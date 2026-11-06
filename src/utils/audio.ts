@@ -69,3 +69,32 @@ export function playCelebrationSound() {
     // Ignore audio failures
   }
 }
+
+export function playTimerBeepSound() {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    // 3 distinct alerting beeps for cooking timer completion
+    [0, 0.2, 0.4].forEach(delay => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(880, ctx.currentTime + delay); // A5
+
+      gain.gain.setValueAtTime(0, ctx.currentTime + delay);
+      gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + delay + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.12);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(ctx.currentTime + delay);
+      osc.stop(ctx.currentTime + delay + 0.12);
+    });
+  } catch (e) {
+    // Ignore audio failures
+  }
+}
+

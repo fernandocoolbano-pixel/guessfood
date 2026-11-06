@@ -1,4 +1,6 @@
 import { Recipe, RecipeCategory } from '../types';
+import { isIngredientOwned, validateAndAdaptRecipe } from '../utils/ingredientValidator';
+import { capitalizeIngredient } from '../utils/ingredientParser';
 
 export interface BaseRecipeTemplate {
   id: string;
@@ -124,6 +126,75 @@ export const RECIPE_DATABASE: BaseRecipeTemplate[] = [
     ],
     chefTip: 'O segredo da omelete perfeita é cozinhar em fogo baixo; fogo alto queima a base antes do interior ficar aveludado.',
     adaptedAlternativeText: 'Não tem queijo nem tomate? Apenas ovos bem batidos com sal e cebola picadinha já formam uma omelete digna de bistrô.',
+  },
+
+  // 3B. Fogão - Arroz Frito Dourado com Ovos e Cebola (TESTE B & C)
+  {
+    id: 'arroz-frito-ovos-cebola-fogao',
+    title: 'Arroz Frito Dourado com Ovos, Tomate e Cebola',
+    category: 'rapido',
+    description: 'Um clássico reconfortante e saboroso de frigideira, dourando o arroz soltinho com ovos mexidos, cubinhos de tomate e cebola caramelizada.',
+    prepTimeMinutes: 12,
+    difficulty: 'Fácil',
+    servings: 2,
+    requiredAppliances: ['fogao'],
+    primaryIngredients: ['arroz', 'ovos'],
+    optionalIngredients: ['tomate', 'cebola'],
+    mealMoments: ['almoco', 'jantar', 'decide_por_mim'],
+    steps: [
+      {
+        title: 'Dourar a cebola e o tomate',
+        description: 'Na frigideira em fogo médio, doure a cebola picada com um pingo de óleo. Acrescente o tomate picado e refogue por 2 minutos.',
+      },
+      {
+        title: 'Entrar com os ovos',
+        description: 'Abra os ovos diretamente no cantinho da frigideira e mexa até formarem pedacinhos macios e aveludados.',
+        timerMinutes: 3,
+      },
+      {
+        title: 'Saltear o arroz',
+        description: 'Adicione o arroz e misture tudo vigorosamente para absorver os sabores e dourar por igual.',
+        timerMinutes: 4,
+      },
+      {
+        title: 'Servir bem quente',
+        description: 'Desligue o fogo e sirva na hora. Simples, econômico e delicioso!',
+      },
+    ],
+    chefTip: 'Arroz amanhecido ou gelado é o melhor para fritar: ele não empapa e fica com grãos soltos e dourados.',
+    adaptedAlternativeText: 'Pode ser feito apenas com arroz e ovos; sal e cebola bastam para dar o sabor perfeito.',
+  },
+
+  // 3C. Fogão - Ovos Mexidos Cremosos com Tomate e Cebola
+  {
+    id: 'ovos-mexidos-cremosos-tomate-fogao',
+    title: 'Ovos Mexidos Aveludados com Tomate e Cebola',
+    category: 'rapido',
+    description: 'Ovos preparados lentamente na frigideira com tomatinhos suculentos e cebola tenra, resultando em textura macia incomparável.',
+    prepTimeMinutes: 8,
+    difficulty: 'Fácil',
+    servings: 1,
+    requiredAppliances: ['fogao'],
+    primaryIngredients: ['ovos', 'tomate'],
+    optionalIngredients: ['cebola'],
+    mealMoments: ['cafe', 'lanche', 'jantar', 'decide_por_mim'],
+    steps: [
+      {
+        title: 'Amaciar a cebola e o tomate',
+        description: 'Na frigideira em fogo baixo, refogue a cebola picadinha e o tomate picado até murcharem e soltarem aroma.',
+      },
+      {
+        title: 'Cozinhar os ovos com delicadeza',
+        description: 'Adicione os ovos batidos com uma pitada de sal. Mexa suavemente com espátula do fundo para as bordas em fogo brando.',
+        timerMinutes: 4,
+      },
+      {
+        title: 'Finalizar no ponto',
+        description: 'Retire do fogo ainda levemente úmido para manter a cremosidade.',
+      },
+    ],
+    chefTip: 'Retire a frigideira do fogo 30 segundos antes de achar que está pronto; o calor residual termina o cozimento com perfeição.',
+    adaptedAlternativeText: 'Se faltar tomate, use apenas os ovos e a cebola.',
   },
 
   // 4. Fogão - Arroz Cremoso Caipira (Aproveitamento Inteligente)
@@ -577,7 +648,7 @@ export function matchAndSolveRecipes(params: {
     );
   });
 
-  // 2. Score by ingredients match
+  // 2. Score by ingredients match using semantic isIngredientOwned
   const scored = applianceCompatible.map(template => {
     let matchedCount = 0;
     const allIngredientsToCheck = [
@@ -586,16 +657,11 @@ export function matchAndSolveRecipes(params: {
     ];
 
     allIngredientsToCheck.forEach(ing => {
-      const isPresent = normalizedUserIngredients.some(
-        userIng => userIng.includes(ing) || ing.includes(userIng)
-      );
-      if (isPresent) matchedCount++;
+      if (isIngredientOwned(ing, userIngredients)) matchedCount++;
     });
 
     const primaryMatched = template.primaryIngredients.filter(ing =>
-      normalizedUserIngredients.some(
-        userIng => userIng.includes(ing) || ing.includes(userIng)
-      )
+      isIngredientOwned(ing, userIngredients)
     ).length;
 
     // Check if meal moment matches
@@ -605,7 +671,7 @@ export function matchAndSolveRecipes(params: {
       template.mealMoments.includes(mealType);
 
     const score =
-      primaryMatched * 4 + matchedCount * 2 + (momentMatches ? 3 : 0);
+      primaryMatched * 5 + matchedCount * 2 + (momentMatches ? 3 : 0);
 
     return {
       template,
@@ -641,34 +707,44 @@ export function matchAndSolveRecipes(params: {
   for (const cat of categoriesOrder) {
     const template = selectedCategories[cat];
     if (template) {
-      // Determine owned vs missing ingredients
-      const ingredientsUsed = [
-        ...template.primaryIngredients.map(name => {
-          const isOwned = normalizedUserIngredients.some(
-            u => u.includes(name) || name.includes(u)
-          );
-          return {
-            name: capitalize(name),
-            amount: isOwned ? 'A gosto / Conforme disponível' : '1 porção',
-            isOwned,
-          };
-        }),
-        ...template.optionalIngredients.slice(0, 3).map(name => {
-          const isOwned = normalizedUserIngredients.some(
-            u => u.includes(name) || name.includes(u)
-          );
-          return {
+      // Determine owned vs missing ingredients cleanly
+      const primaryItems = template.primaryIngredients.map(name => {
+        const isOwned = isIngredientOwned(name, userIngredients);
+        return {
+          name: capitalize(name),
+          amount: isOwned ? 'Conforme disponível' : '1 porção',
+          isOwned,
+        };
+      });
+
+      // Optional ingredients: only include owned ones, plus at most ONE missing item if needed
+      const optionalItems: { name: string; amount: string; isOwned: boolean }[] = [];
+      let missingCount = primaryItems.filter(p => !p.isOwned).length;
+
+      for (const name of template.optionalIngredients) {
+        const isOwned = isIngredientOwned(name, userIngredients);
+        if (isOwned) {
+          optionalItems.push({
             name: capitalize(name),
             amount: 'A gosto',
-            isOwned,
-          };
-        }),
-      ];
+            isOwned: true,
+          });
+        } else if (missingCount === 0 && optionalItems.length < 2) {
+          // Allow at most 1 missing optional item for "posso comprar"
+          optionalItems.push({
+            name: capitalize(name),
+            amount: 'A gosto',
+            isOwned: false,
+          });
+          missingCount++;
+        }
+      }
 
+      const ingredientsUsed = [...primaryItems, ...optionalItems];
       const missing = ingredientsUsed.find(i => !i.isOwned);
       const hasAll = !missing;
 
-      finalRecipes.push({
+      const baseRecipe: Recipe = {
         id: template.id,
         title: template.title,
         category: template.category,
@@ -690,7 +766,10 @@ export function matchAndSolveRecipes(params: {
           timerMinutes: s.timerMinutes,
         })),
         chefTip: template.chefTip,
-      });
+      };
+
+      const validated = validateAndAdaptRecipe(baseRecipe, userIngredients, userAppliances, false).recipe;
+      finalRecipes.push(validated);
     }
   }
 
@@ -762,7 +841,7 @@ export function matchRecipesForEffort(params: {
     );
   });
 
-  // 2. Score by ingredients match
+  // 2. Score by ingredients match using semantic isIngredientOwned
   const scored = applianceCompatible.map(template => {
     let matchedCount = 0;
     const allIngredientsToCheck = [
@@ -771,26 +850,21 @@ export function matchRecipesForEffort(params: {
     ];
 
     allIngredientsToCheck.forEach(ing => {
-      const isPresent = normalizedUserIngredients.some(
-        userIng => userIng.includes(ing) || ing.includes(userIng)
-      );
-      if (isPresent) matchedCount++;
+      if (isIngredientOwned(ing, userIngredients)) matchedCount++;
     });
 
     const primaryMatched = template.primaryIngredients.filter(ing =>
-      normalizedUserIngredients.some(
-        userIng => userIng.includes(ing) || ing.includes(userIng)
-      )
+      isIngredientOwned(ing, userIngredients)
     ).length;
 
     // Effort bonus
     let effortBonus = 0;
     if (effort === 'rapido') {
-      if (template.prepTimeMinutes <= 15 || template.category === 'rapido') effortBonus += 8;
+      if (template.prepTimeMinutes <= 15 || template.category === 'rapido') effortBonus += 10;
     } else if (effort === 'pratico') {
-      if (template.steps.length <= 3 || template.requiredAppliances.length === 1) effortBonus += 8;
+      if (template.steps.length <= 4 || template.requiredAppliances.length === 1) effortBonus += 10;
     } else if (effort === 'incrementado') {
-      if (template.category === 'incrementado' || template.prepTimeMinutes >= 18) effortBonus += 8;
+      if (template.category === 'incrementado' || template.prepTimeMinutes >= 15) effortBonus += 10;
     }
 
     const score = primaryMatched * 5 + matchedCount * 2 + effortBonus;
@@ -805,36 +879,44 @@ export function matchRecipesForEffort(params: {
 
   scored.sort((a, b) => b.score - a.score);
 
-  // Pick top 2 to 4 recipes for the wheel
-  const topTemplates = scored.slice(0, 4).map(s => s.template);
+  // Pick top 3 recipes for the wheel & session
+  const topTemplates = scored.slice(0, 3).map(s => s.template);
 
   const recipes: Recipe[] = topTemplates.map(template => {
-    const ingredientsUsed = [
-      ...template.primaryIngredients.map(name => {
-        const isOwned = normalizedUserIngredients.some(
-          u => u.includes(name) || name.includes(u)
-        );
-        return {
-          name: capitalize(name),
-          amount: isOwned ? 'A gosto / Conforme disponível' : '1 porção',
-          isOwned,
-        };
-      }),
-      ...template.optionalIngredients.slice(0, 2).map(name => {
-        const isOwned = normalizedUserIngredients.some(
-          u => u.includes(name) || name.includes(u)
-        );
-        return {
+    const primaryItems = template.primaryIngredients.map(name => {
+      const isOwned = isIngredientOwned(name, userIngredients);
+      return {
+        name: capitalize(name),
+        amount: isOwned ? 'Conforme disponível' : '1 porção',
+        isOwned,
+      };
+    });
+
+    const optionalItems: { name: string; amount: string; isOwned: boolean }[] = [];
+    let missingCount = primaryItems.filter(p => !p.isOwned).length;
+
+    for (const name of template.optionalIngredients) {
+      const isOwned = isIngredientOwned(name, userIngredients);
+      if (isOwned) {
+        optionalItems.push({
           name: capitalize(name),
           amount: 'A gosto',
-          isOwned,
-        };
-      }),
-    ];
+          isOwned: true,
+        });
+      } else if (missingCount === 0 && optionalItems.length < 2) {
+        optionalItems.push({
+          name: capitalize(name),
+          amount: 'A gosto',
+          isOwned: false,
+        });
+        missingCount++;
+      }
+    }
 
+    const ingredientsUsed = [...primaryItems, ...optionalItems];
     const missing = ingredientsUsed.find(i => !i.isOwned);
 
-    return {
+    const baseRecipe: Recipe = {
       id: template.id,
       title: template.title,
       category: template.category,
@@ -857,6 +939,8 @@ export function matchRecipesForEffort(params: {
       })),
       chefTip: template.chefTip,
     };
+
+    return validateAndAdaptRecipe(baseRecipe, userIngredients, userAppliances, false).recipe;
   });
 
   // Fallback if none matched

@@ -8,13 +8,20 @@ export interface GenerateParams {
   dietaryPreferences?: string[];
 }
 
+import { parseIngredientsSemantic } from '../utils/ingredientParser';
+
 export async function parseIngredientsFromText(text: string): Promise<string[]> {
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+
     const res = await fetch('/api/parse-ingredients', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     if (res.ok) {
       const data = await res.json();
@@ -23,22 +30,11 @@ export async function parseIngredientsFromText(text: string): Promise<string[]> 
       }
     }
   } catch (err) {
-    console.warn('Network or server error while parsing ingredients, using local regex:', err);
+    console.warn('Network or server error while parsing ingredients, using instant local semantic parser:', err);
   }
 
-  // Fallback client-side regex parsing
-  const cleanItems = text
-    .toLowerCase()
-    .replace(/\b(tenho|tem|temos|na geladeira|em casa|sobrou|sobras de|comprei|bastante|um pouco de|uns|umas|pouco de|alguns|algumas)\b/g, '')
-    .replace(/\s+e\s+/g, ',')
-    .split(/[,;\n\.\+\/&]/g)
-    .map(item => item.trim())
-    .map(item => item.replace(/^\d+(\s*g|\s*kg|\s*ml|\s*l|\s*colheres?|\s*xícaras?|\s*unidades?)?\s*/i, ''))
-    .map(item => item.replace(/^(um|uma|dois|duas|três|quatro)\s+/i, ''))
-    .map(item => item.trim())
-    .filter(item => item.length > 1 && !/^(de|com|sem|para|o|a|os|as|e)$/.test(item));
-
-  return Array.from(new Set(cleanItems));
+  // Instant semantic Portuguese culinary parser fallback
+  return parseIngredientsSemantic(text);
 }
 
 export async function fetchGeneratedRecipes(params: GenerateParams): Promise<{ recipes: Recipe[]; source: 'ai' | 'smart_solver' }> {

@@ -330,38 +330,76 @@ export const HungerWheelView: React.FC = () => {
         </div>
       )}
 
-      {/* Alternative List: All Viable Recipes Found */}
+      {/* CORREÇÃO 3 & 6: PRESERVAÇÃO DAS 3 RECEITAS GERADAS */}
       {slices.length > 0 && (
-        <div className="bg-white rounded-3xl p-6 border border-amber-100 shadow-sm space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-black text-stone-900 text-base font-['Outfit']">
-              Ou escolha direto entre as receitas encontradas:
-            </h3>
+        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-amber-100 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+            <div>
+              <span className="text-xs font-bold text-orange-600 uppercase tracking-wider block">
+                Suas Opções Salvas Nesta Sessão
+              </span>
+              <h3 className="font-black text-stone-900 text-xl font-['Outfit']">
+                🍽️ 3 Receitas Prontas para sua Cozinha
+              </h3>
+            </div>
+            <span className="text-xs font-bold text-stone-400">
+              Clique em qualquer opção para ver o passo a passo completo
+            </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {slices.map(s => (
-              <div
-                key={s.recipe.id}
-                onClick={() => handleGoToRecipe(s.recipe)}
-                className="p-4 rounded-2xl bg-stone-50 hover:bg-amber-50/80 border border-stone-200/80 hover:border-orange-300 transition-all cursor-pointer flex items-center justify-between gap-3 group"
-              >
-                <div className="space-y-1">
-                  <h4 className="font-extrabold text-stone-900 text-sm group-hover:text-orange-600 transition-colors">
-                    {s.recipe.title}
-                  </h4>
-                  <div className="flex items-center gap-2 text-xs text-stone-500 font-medium">
-                    <span>⏱️ {s.recipe.prepTimeMinutes}m</span>
-                    <span>•</span>
-                    <span>👨‍🍳 {s.recipe.difficulty}</span>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+            {slices.map((s, idx) => {
+              const isSelected = winningRecipe?.id === s.recipe.id;
+
+              return (
+                <div
+                  key={s.recipe.id}
+                  onClick={() => handleGoToRecipe(s.recipe)}
+                  className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between gap-3 group relative ${
+                    isSelected
+                      ? 'bg-amber-50/90 border-orange-500 shadow-md ring-2 ring-orange-300'
+                      : 'bg-stone-50/70 hover:bg-amber-50/60 border-stone-200/80 hover:border-orange-300 shadow-2xs'
+                  }`}
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider text-white ${
+                        s.recipe.category === 'rapido'
+                          ? 'bg-amber-500'
+                          : s.recipe.category === 'incrementado'
+                          ? 'bg-orange-600'
+                          : 'bg-purple-600'
+                      }`}>
+                        {s.recipe.category === 'rapido' ? '⚡ Rápido' : s.recipe.category === 'incrementado' ? '🔥 Incrementado' : '🍳 Prático'}
+                      </span>
+
+                      {isSelected && (
+                        <span className="text-[10px] font-black text-amber-800 bg-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <span>👑</span>
+                          <span>Sorteada</span>
+                        </span>
+                      )}
+                    </div>
+
+                    <h4 className="font-black text-stone-900 text-base group-hover:text-orange-600 transition-colors leading-snug">
+                      {s.recipe.title}
+                    </h4>
+
+                    <p className="text-xs text-stone-500 line-clamp-2 leading-relaxed">
+                      {s.recipe.description}
+                    </p>
+                  </div>
+
+                  <div className="pt-2 border-t border-stone-200/70 flex items-center justify-between text-xs text-stone-600 font-bold">
+                    <span>⏱️ {s.recipe.prepTimeMinutes} min</span>
+                    <span className="text-orange-600 group-hover:translate-x-1 transition-transform flex items-center gap-1">
+                      <span>Ver tutorial</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </span>
                   </div>
                 </div>
-
-                <div className="w-8 h-8 rounded-xl bg-white border border-stone-200 flex items-center justify-center text-stone-400 group-hover:text-orange-600 group-hover:border-orange-300 transition-all shrink-0">
-                  <ArrowRight className="w-4 h-4" />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
